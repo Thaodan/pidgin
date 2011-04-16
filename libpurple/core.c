@@ -26,6 +26,8 @@
 #include "internal.h"
 #include "cipher.h"
 #include "certificate.h"
+#include "privatekey.h"
+#include "pkcs12.h"
 #include "cmds.h"
 #include "connection.h"
 #include "conversation.h"
@@ -164,6 +166,8 @@ purple_core_init(const char *ui)
 	purple_savedstatuses_init();
 	purple_notify_init();
 	purple_certificate_init();
+	purple_privatekey_init();
+	purple_pkcs12_init();
 	purple_conversations_init();
 	purple_blist_init();
 	purple_log_init();
