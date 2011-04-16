@@ -610,6 +610,12 @@ purple_connection_ssl_error (PurpleConnection *gc,
 			/* TODO: maybe PURPLE_SSL_* should be more specific? */
 			reason = PURPLE_CONNECTION_ERROR_CERT_OTHER_ERROR;
 			break;
+		case PURPLE_SSL_PRIVATEKEY_NOT_FOUND:
+		case PURPLE_SSL_PRIVATEKEY_CANCELED:
+		case PURPLE_SSL_PRIVATEKEY_BAD_PASSWORD:
+			/* TODO: Create specific PurpleConnectionError codes */
+			reason = PURPLE_CONNECTION_ERROR_AUTHENTICATION_FAILED;
+			break;
 		default:
 			g_assert_not_reached ();
 			reason = PURPLE_CONNECTION_ERROR_CERT_OTHER_ERROR;
