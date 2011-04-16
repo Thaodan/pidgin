@@ -419,6 +419,12 @@ account_to_xmlnode(PurpleAccount *account)
 			xmlnode_insert_data(child, ciphertext, -1);
 	}
 
+	if ((tmp = purple_account_get_certificate_id(account)) != NULL)
+	{
+		child = xmlnode_new_child(node, "certificateid");
+		xmlnode_insert_data(child, tmp, -1);
+	}
+
 	if ((tmp = purple_account_get_alias(account)) != NULL)
 	{
 		child = xmlnode_new_child(node, "alias");
@@ -925,6 +931,15 @@ parse_account(xmlnode *node)
 				"but it's not supported in 2.x.y\n");
 			_purple_account_set_encrypted_password(ret, keyring_id, mode, data);
 		}
+		g_free(data);
+	}
+
+	/* Read the certificate id */
+	child = xmlnode_get_child(node, "certificateid");
+	purple_debug_info("account", "crt id field from accounts.xml: %p\n", child);
+	if ((child != NULL) && ((data = xmlnode_get_data(child)) != NULL))
+	{
+		purple_account_set_certificate_id(ret, data);
 		g_free(data);
 	}
 
@@ -1707,6 +1722,19 @@ purple_account_set_password(PurpleAccount *account, const char *password)
 	schedule_accounts_save();
 }
 
+
+void
+purple_account_set_certificate_id(PurpleAccount *account, const char *id)
+{
+	purple_debug_info("account", "Set certificate_id = %s\n", id);
+	g_return_if_fail(account != NULL);
+
+	g_free(account->certificate_id);
+	account->certificate_id = g_strdup(id);
+
+	schedule_accounts_save();
+}
+
 void
 purple_account_set_alias(PurpleAccount *account, const char *alias)
 {
@@ -2238,6 +2266,14 @@ purple_account_get_password(const PurpleAccount *account)
 	g_return_val_if_fail(account != NULL, NULL);
 
 	return account->password;
+}
+
+const char *
+purple_account_get_certificate_id(const PurpleAccount *account)
+{
+	g_return_val_if_fail(account != NULL, NULL);
+
+	return account->certificate_id;
 }
 
 const char *
