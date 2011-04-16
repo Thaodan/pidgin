@@ -847,8 +847,9 @@ static void tls_init(JabberStream *js)
 {
 	purple_input_remove(js->gc->inpa);
 	js->gc->inpa = 0;
-	js->gsc = purple_ssl_connect_with_host_fd(js->gc->account, js->fd,
-			jabber_login_callback_ssl, jabber_ssl_connect_failure, js->certificate_CN, js->gc);
+	js->gsc = purple_ssl_connect_with_host_fd_auth(js->gc->account, js->fd,
+			jabber_login_callback_ssl, jabber_ssl_connect_failure, 
+			js->certificate_CN, js->gc->account->certificate_id, js->gc);
 	/* The fd is no longer our concern */
 	js->fd = -1;
 }
@@ -1047,9 +1048,10 @@ jabber_stream_connect(JabberStream *js)
 	/* if they've got old-ssl mode going, we probably want to ignore SRV lookups */
 	if (purple_strequal("old_ssl", purple_account_get_string(account, "connection_security", JABBER_DEFAULT_REQUIRE_TLS))) {
 		if(purple_ssl_is_supported()) {
-			js->gsc = purple_ssl_connect(account, js->certificate_CN,
+			js->gsc = purple_ssl_connect_with_ssl_cn_auth(account, js->certificate_CN,
 					purple_account_get_int(account, "port", 5223),
-					jabber_login_callback_ssl, jabber_ssl_connect_failure, gc);
+					jabber_login_callback_ssl, jabber_ssl_connect_failure,
+					NULL, account->certificate_id, gc);
 			if (!js->gsc) {
 				purple_connection_error_reason(gc,
 					PURPLE_CONNECTION_ERROR_NO_SSL_SUPPORT,
