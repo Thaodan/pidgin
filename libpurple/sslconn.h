@@ -31,10 +31,30 @@ typedef enum
 {
 	PURPLE_SSL_HANDSHAKE_FAILED = 1,
 	PURPLE_SSL_CONNECT_FAILED = 2,
-	PURPLE_SSL_CERTIFICATE_INVALID = 3
+	PURPLE_SSL_CERTIFICATE_INVALID = 3,
+
+	/** 
+	 * When trying to authenticate with client certificates
+	 * the user's private key could not be found.
+	 */
+	PURPLE_SSL_PRIVATEKEY_NOT_FOUND = 4,
+
+	/**
+	 * When trying to authenticate with client certificates
+	 * the user cancelled the request for the private key password.
+	 */
+	PURPLE_SSL_PRIVATEKEY_CANCELED = 5,
+
+	/**
+	 * When trying to authenticate with client certificates
+	 * the user entered an invalid password for the private key.
+	 */
+	PURPLE_SSL_PRIVATEKEY_BAD_PASSWORD = 6
+
 } PurpleSslErrorType;
 
 #include "certificate.h"
+#include "privatekey.h"
 #include "proxy.h"
 
 #define PURPLE_SSL_DEFAULT_PORT 443
@@ -46,6 +66,8 @@ typedef void (*PurpleSslInputFunction)(gpointer, PurpleSslConnection *,
 									 PurpleInputCondition);
 typedef void (*PurpleSslErrorFunction)(PurpleSslConnection *, PurpleSslErrorType,
 									 gpointer);
+/* TODO: Do we need better parameters here for algorithms, complete certificate chain, etc? */
+typedef gboolean (*PurpleSslGetCredentialsFunction)(PurpleSslConnection*, PurpleCertificate **crt, PurplePrivateKey **key);
 
 struct _PurpleSslConnection
 {
@@ -77,6 +99,18 @@ struct _PurpleSslConnection
 
 	/** Verifier to use in authenticating the peer */
 	PurpleCertificateVerifier *verifier;
+
+	/** Id of certificate to use for client-side authentication */
+	char* certificate_id;
+
+	/** Certificate to use for client authentication. Must match certificate_id */
+	PurpleCertificate *certificate;
+
+	/** Private key to use for client authentication. Must match certificate_id */
+	PurplePrivateKey *key;
+
+	/** Callback function to get credentials. */
+	PurpleSslGetCredentialsFunction get_credentials_cb;
 };
 
 /**
@@ -211,6 +245,37 @@ PurpleSslConnection *purple_ssl_connect_with_ssl_cn(PurpleAccount *account, cons
 									const char *ssl_host,
 									void *data);
 
+/**
+ * Makes a SSL connection to the specified host and port, using the separate
+ * name to verify with the certificate. Client-side authentication may be
+ * enabled by setting the cred_func which will retrieve a PurpleCertificate
+ * and PurplePrivateKey used to authenticate the client to the server.
+ * The caller should keep track of the
+ * returned value and use it to cancel the connection, if needed.
+ *
+ * @param account    The account making the connection.
+ * @param host       The destination host.
+ * @param port       The destination port.
+ * @param func       The SSL input handler function.
+ * @param error_func The SSL error handler function.  This function
+ *                   should <strong>NOT</strong> call purple_ssl_close().  In
+ *                   the event of an error the #PurpleSslConnection will be
+ *                   destroyed for you.
+ * @param certificate_id  Id of the certificate and private key for client-side 
+ *                        authentication. NULL for no auth.
+ * @param ssl_host   The hostname of the other peer (to verify the CN)
+ * @param data       User-defined data.
+ *
+ * @return The SSL connection handle.
+ * @since ?.?.?
+ */
+PurpleSslConnection *
+purple_ssl_connect_with_ssl_cn_auth(PurpleAccount *account, const char *host, int port,
+				    PurpleSslInputFunction func, PurpleSslErrorFunction error_func,
+				    const char *ssl_cn,
+				    const char* certificate_id,
+				    void *data);
+
 #if !(defined PURPLE_DISABLE_DEPRECATED) || (defined _PURPLE_SSLCONN_C_)
 /**
  * Makes a SSL connection using an already open file descriptor.
@@ -251,6 +316,34 @@ PurpleSslConnection *purple_ssl_connect_with_host_fd(PurpleAccount *account, int
                                            const char *host,
                                            void *data);
 
+/**
+ * Makes a SSL connection using an already open file descriptor.
+ * Client-side authentication may be
+ * enabled by setting the cred_func which will retrieve a PurpleCertificate
+ * and PurplePrivateKey used to authenticate the client to the server.
+ *
+ * @param account    The account making the connection.
+ * @param fd         The file descriptor.
+ * @param func       The SSL input handler function.
+ * @param error_func The SSL error handler function.
+ * @param certificate_id  Id of the certificate and private key for client-side 
+ *                        authentication. NULL for no auth.
+ * @param host       The hostname of the other peer (to verify the CN)
+ * @param data       User-defined data.
+ *
+ * @return The SSL connection handle.
+ *
+ * @since ?.?.?
+ *
+ * TODO: Do we really need to pass certificate_id here? Should we put it in account?
+ */
+PurpleSslConnection *
+purple_ssl_connect_with_host_fd_auth(PurpleAccount *account, int fd,
+		PurpleSslInputFunction func,
+		PurpleSslErrorFunction error_func,
+		const char *host,
+		const char* certificate_id,
+		void *data);
 /**
  * Adds an input watcher for the specified SSL connection.
  * Once the SSL handshake is complete, use this to watch for actual data across it.
@@ -303,6 +396,14 @@ size_t purple_ssl_write(PurpleSslConnection *gsc, const void *buffer, size_t len
  */
 GList * purple_ssl_get_peer_certificates(PurpleSslConnection *gsc);
 
+/**
+ * Get the id the of certificate to use for client-side SSL/TLS authentication.
+ *
+ * @param gsc  The SSL connection handle
+ *
+ * @return .
+ */
+const char* purple_ssl_get_client_certificate_id(PurpleSslConnection *gsc);
 /*@}*/
 
 /**************************************************************************/
