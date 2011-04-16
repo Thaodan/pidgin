@@ -234,6 +234,7 @@ jabber_auth_start_cyrus(JabberStream *js, xmlnode **reply, char **error)
 		js->sasl_state = sasl_client_new("xmpp", js->serverFQDN, NULL, NULL, js->sasl_cb, 0, &js->sasl);
 		if (js->sasl_state==SASL_OK) {
 			sasl_setprop(js->sasl, SASL_SEC_PROPS, &secprops);
+			sasl_setprop(js->sasl, SASL_AUTH_EXTERNAL, account->username);
 			purple_debug_info("sasl", "Mechs found: %s\n", js->sasl_mechs->str);
 			js->sasl_state = sasl_client_start(js->sasl, js->sasl_mechs->str, NULL, &clientout, &coutlen, &js->current_mech);
 		}
@@ -424,7 +425,7 @@ jabber_cyrus_start(JabberStream *js, xmlnode *mechanisms,
 		 * mechanisms"...  Easiest just to blacklist it (for now).
 		 */
 		if (!mech_name || !*mech_name ||
-				purple_strequal(mech_name, "EXTERNAL")) {
+				g_str_equal(mech_name, "EXTERNAL")) {
 			g_free(mech_name);
 			continue;
 		}
