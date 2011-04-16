@@ -62,11 +62,13 @@ purple_coresources = \
 	network.c \
 	ntlm.c \
 	notify.c \
+	pkcs12.c \
 	plugin.c \
 	pluginpref.c \
 	pounce.c \
 	prefs.c \
 	privacy.c \
+	privatekey.c \
 	proxy.c \
 	prpl.c \
 	request.c \
@@ -127,11 +129,13 @@ purple_coreheaders = \
 	network.h \
 	notify.h \
 	ntlm.h \
+	pkcs12.h \
 	plugin.h \
 	pluginpref.h \
 	pounce.h \
 	prefs.h \
 	privacy.h \
+	privatekey.h \
 	proxy.h \
 	prpl.h \
 	request.h \
