@@ -786,6 +786,7 @@ add_protocol_options(AccountPrefsDialog *dialog)
 	const char *str_value;
 	gboolean bool_value;
 	ProtocolOptEntry *opt_entry;
+	GList *protocol_options;
 
 	if (dialog->protocol_frame != NULL) {
 		gtk_notebook_remove_page (GTK_NOTEBOOK(dialog->notebook), 1);
@@ -799,11 +800,15 @@ add_protocol_options(AccountPrefsDialog *dialog)
 		dialog->protocol_opt_entries = g_list_delete_link(dialog->protocol_opt_entries, dialog->protocol_opt_entries);
 	}
 
-	if (dialog->prpl_info == NULL ||
-			dialog->prpl_info->protocol_options == NULL)
+	account = dialog->account;
+
+	if (dialog->prpl_info == NULL)
 		return;
 
-	account = dialog->account;
+	protocol_options = purple_account_get_options(dialog->prpl_info);
+	if (protocol_options == NULL)
+		return;
+
 
 	/* Main vbox */
 	dialog->protocol_frame = vbox = gtk_vbox_new(FALSE, PIDGIN_HIG_BOX_SPACE);
@@ -812,7 +817,7 @@ add_protocol_options(AccountPrefsDialog *dialog)
 			gtk_label_new_with_mnemonic(_("Ad_vanced")), 1);
 	gtk_widget_show(vbox);
 
-	for (l = dialog->prpl_info->protocol_options; l != NULL; l = l->next)
+	for (l = protocol_options; l != NULL; l = l->next)
 	{
 		option = (PurpleAccountOption *)l->data;
 

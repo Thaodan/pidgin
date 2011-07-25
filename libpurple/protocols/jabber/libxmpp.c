@@ -48,6 +48,7 @@
 #include "caps.h"
 #include "data.h"
 #include "ibb.h"
+#include "certificate.h"
 
 static PurplePlugin *my_protocol = NULL;
 
@@ -135,6 +136,7 @@ static PurplePluginProtocolInfo prpl_info =
 	NULL, /* get_cb_alias */
 	NULL, /* chat_can_receive_file */
 	NULL, /* chat_send_file */
+	jabber_get_account_options /* get_account_options */
 };
 
 static gboolean load_plugin(PurplePlugin *plugin)
@@ -252,22 +254,30 @@ static gboolean xmpp_uri_handler(const char *proto, const char *user, GHashTable
 	return FALSE;
 }
 
-
-static void
-init_plugin(PurplePlugin *plugin)
+static
+void destroy_account_options(GList *account_options)
 {
-	PurpleAccountUserSplit *split;
+	GList *item = NULL;
+
+	for (item = account_options; item != NULL; item = item->next) {
+		purple_account_option_destroy(item->data);
+	}
+
+	g_list_free(account_options);
+}
+
+GList* jabber_get_account_options()
+{
 	PurpleAccountOption *option;
+	GList *options = NULL;
 	GList *encryption_values = NULL;
-
-	/* Translators: 'domain' is used here in the context of Internet domains, e.g. pidgin.im */
-	split = purple_account_user_split_new(_("Domain"), NULL, '@');
-	purple_account_user_split_set_reverse(split, FALSE);
-	prpl_info.user_splits = g_list_append(prpl_info.user_splits, split);
-
-	split = purple_account_user_split_new(_("Resource"), "", '/');
-	purple_account_user_split_set_reverse(split, FALSE);
-	prpl_info.user_splits = g_list_append(prpl_info.user_splits, split);
+	PurpleCertificatePool *cert_pool = NULL;
+	GList *certificates = NULL;
+	
+	/* Destroy the current option list so we can recreated it. 
+	 * We could just update the changed field, but this is simpler
+	 */
+	destroy_account_options(prpl_info.protocol_options);
 
 #define ADD_VALUE(list, desc, v) { \
 	PurpleKeyValuePair *kvp = g_new0(PurpleKeyValuePair, 1); \
@@ -284,44 +294,90 @@ init_plugin(PurplePlugin *plugin)
 #endif
 	encryption_values = g_list_reverse(encryption_values);
 
-#undef ADD_VALUE
 
 	option = purple_account_option_list_new(_("Connection security"), "connection_security", encryption_values);
-	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options,
-						   option);
+	options = g_list_append(options, option);
 
-	option = purple_account_option_bool_new(
-						_("Allow plaintext auth over unencrypted streams"),
+	
+	ADD_VALUE(certificates, _("None"), "none"); /* hopefully we don't have a cert id of none */
+	cert_pool = purple_certificate_find_pool("x509", "user");
+	if (cert_pool) {
+		GList *id_list = NULL;
+		GList *item = NULL;
+		PurpleCertificate *cert = NULL;
+
+		id_list = purple_certificate_pool_get_idlist(cert_pool);
+		for (item = id_list; item != NULL; item = item->next) {
+			gchar* id = item->data;
+			cert = purple_certificate_pool_retrieve(cert_pool, id);
+			if (cert) {
+				PurpleKeyValuePair *kvp = g_new0(PurpleKeyValuePair, 1);
+				kvp->key = g_strdup(id);
+				kvp->value = purple_certificate_get_subject_name(cert);
+				certificates = g_list_append(certificates, kvp);
+				purple_debug_info("xmpp/accountopt", "added cert %s to acct opt list\n", id);
+			}
+			else {
+				purple_debug_warning("xmpp/accountopt", "Failed to find cert for id %s\n", id);
+			}
+		}
+		purple_certificate_pool_destroy_idlist(id_list);
+	}
+
+	option = purple_account_option_list_new(_("Login certificate"), "certificate_id", certificates);
+	options = g_list_append(options, option);
+
+#undef ADD_VALUE
+
+	option = purple_account_option_bool_new(_("Allow plaintext auth over unencrypted streams"),
 						"auth_plain_in_clear", FALSE);
-	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options,
-						   option);
+	options = g_list_append(options, option);
 
 	option = purple_account_option_int_new(_("Connect port"), "port", 5222);
-	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options,
-						   option);
+	options = g_list_append(options, option);
 
 	option = purple_account_option_string_new(_("Connect server"),
 						  "connect_server", NULL);
-	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options,
-						  option);
+	options = g_list_append(options, option);
 
 	option = purple_account_option_string_new(_("File transfer proxies"),
 						  "ft_proxies", NULL);
 	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options,
 						  option);
+	options = g_list_append(options, option);
 
 	option = purple_account_option_string_new(_("BOSH URL"),
 						  "bosh_url", NULL);
-	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options,
-						  option);
+	options = g_list_append(options, option);
 
 	/* this should probably be part of global smiley theme settings
 	 * later on
 	 */
 	option = purple_account_option_bool_new(_("Show Custom Smileys"),
 		"custom_smileys", TRUE);
-	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options,
-		option);
+	options = g_list_append(options, option);
+
+	/* Required until we stop using the protocol_options field */
+	prpl_info.protocol_options = options;
+
+	return options;
+}
+
+static void
+init_plugin(PurplePlugin *plugin)
+{
+	PurpleAccountUserSplit *split;
+
+	/* Translators: 'domain' is used here in the context of Internet domains, e.g. pidgin.im */
+	split = purple_account_user_split_new(_("Domain"), NULL, '@');
+	purple_account_user_split_set_reverse(split, FALSE);
+	prpl_info.user_splits = g_list_append(prpl_info.user_splits, split);
+
+	split = purple_account_user_split_new(_("Resource"), "", '/');
+	purple_account_user_split_set_reverse(split, FALSE);
+	prpl_info.user_splits = g_list_append(prpl_info.user_splits, split);
+
+	prpl_info.protocol_options = jabber_get_account_options();
 
 	my_protocol = plugin;
 

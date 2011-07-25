@@ -433,6 +433,7 @@ gboolean jabber_initiate_media(PurpleAccount *account, const char *who,
 		PurpleMediaSessionType type);
 PurpleMediaCaps jabber_get_media_caps(PurpleAccount *account, const char *who);
 gboolean jabber_can_receive_file(PurpleConnection *gc, const gchar *who);
+GList* jabber_get_account_options();
 
 void jabber_plugin_init(PurplePlugin *plugin);
 void jabber_plugin_uninit(PurplePlugin *plugin);

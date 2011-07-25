@@ -419,12 +419,14 @@ account_to_xmlnode(PurpleAccount *account)
 			xmlnode_insert_data(child, ciphertext, -1);
 	}
 
+#if 0
+	/* XXX ljf remove */
 	if ((tmp = purple_account_get_certificate_id(account)) != NULL)
 	{
 		child = xmlnode_new_child(node, "certificateid");
 		xmlnode_insert_data(child, tmp, -1);
 	}
-
+#endif
 	if ((tmp = purple_account_get_alias(account)) != NULL)
 	{
 		child = xmlnode_new_child(node, "alias");
@@ -934,6 +936,8 @@ parse_account(xmlnode *node)
 		g_free(data);
 	}
 
+#if 0
+	/* XXX ljf remove */
 	/* Read the certificate id */
 	child = xmlnode_get_child(node, "certificateid");
 	purple_debug_info("account", "crt id field from accounts.xml: %p\n", child);
@@ -942,7 +946,7 @@ parse_account(xmlnode *node)
 		purple_account_set_certificate_id(ret, data);
 		g_free(data);
 	}
-
+#endif
 	/* Read the alias */
 	child = xmlnode_get_child(node, "alias");
 	if ((child != NULL) && ((data = xmlnode_get_data(child)) != NULL))
@@ -1050,6 +1054,7 @@ load_accounts(void)
 	xmlnode_free(node);
 
 	_purple_buddy_icons_account_loaded_cb();
+
 }
 
 
@@ -1722,19 +1727,24 @@ purple_account_set_password(PurpleAccount *account, const char *password)
 	schedule_accounts_save();
 }
 
-
+#if 0
+/* XXX ljf */
 void
 purple_account_set_certificate_id(PurpleAccount *account, const char *id)
 {
 	purple_debug_info("account", "Set certificate_id = %s\n", id);
 	g_return_if_fail(account != NULL);
 
+	if (g_strcmp0(id, "None")) {
+		id = NULL;
+	}
+
 	g_free(account->certificate_id);
 	account->certificate_id = g_strdup(id);
 
 	schedule_accounts_save();
 }
-
+#endif
 void
 purple_account_set_alias(PurpleAccount *account, const char *alias)
 {
@@ -2267,7 +2277,7 @@ purple_account_get_password(const PurpleAccount *account)
 
 	return account->password;
 }
-
+#if 0 /* XXX ljf */
 const char *
 purple_account_get_certificate_id(const PurpleAccount *account)
 {
@@ -2275,7 +2285,7 @@ purple_account_get_certificate_id(const PurpleAccount *account)
 
 	return account->certificate_id;
 }
-
+#endif
 const char *
 purple_account_get_alias(const PurpleAccount *account)
 {
@@ -2636,6 +2646,18 @@ purple_account_destroy_log(PurpleAccount *account)
 		purple_log_free(account->system_log);
 		account->system_log = NULL;
 	}
+}
+
+GList*
+purple_account_get_options(PurplePluginProtocolInfo *prpl_info)
+{
+	g_return_val_if_fail(prpl_info != NULL, NULL);
+
+
+	if (PURPLE_PROTOCOL_PLUGIN_HAS_FUNC(prpl_info, get_account_options))
+		return prpl_info->get_account_options();
+	else
+		return NULL;
 }
 
 void
