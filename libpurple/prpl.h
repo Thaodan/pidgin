@@ -210,7 +210,6 @@ typedef enum
 	 * @since 2.8.0
 	 */
 	OPT_PROTO_INVITE_MESSAGE = 0x00000800
-
 } PurpleProtocolOptions;
 
 /**
@@ -647,6 +646,18 @@ struct _PurplePluginProtocolInfo
 	 */
 	void (*add_buddy_with_invite)(PurpleConnection *pc, PurpleBuddy *buddy, PurpleGroup *group, const char *message);
 	void (*add_buddies_with_invite)(PurpleConnection *pc, GList *buddies, GList *groups, const char *message);
+	
+	/**
+	 * Get account options for this protocol. Allows dynamic generation
+	 * of account options or values. Either this or protocol_options (above) should be
+	 * used. It should update protocol_options field with the new list when called.
+	 * Yes, we could call this updateAccountOptions, but it would be nice to move
+	 * away from just a field to a field getter.
+         *
+         * @returns GList of PurpleAccountOption
+	 */
+	GList *(*get_account_options)();
+
 };
 
 #define PURPLE_PROTOCOL_PLUGIN_HAS_FUNC(prpl, member) \
