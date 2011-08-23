@@ -138,27 +138,6 @@ purple_privatekey_pool_mkpath(PurplePrivateKeyPool *pool, const gchar *id)
 	return path;
 }
 
-#if 0
-gboolean
-purple_privatekey_pool_set_password(PurplePrivateKeyPool *pool, const gchar* password)
-{
-	g_return_val_if_fail(pool, FALSE);
-	g_return_val_if_fail(password, FALSE);
-
-	(pool->set_password)(password);
-
-	return TRUE;
-}
-
-const gchar*
-purple_privatekey_pool_get_password(PurplePrivateKeyPool *pool)
-{
-	g_returen_val_if_fail(pool, FALSE);
-
-	return (pool->get_password)();
-}
-#endif
-
 gboolean
 purple_privatekey_pool_usable(PurplePrivateKeyPool *pool)
 {
@@ -281,8 +260,6 @@ privatekey_pool_req_retrieve_ok_cb(privatekey_pool_req_data *data, PurpleRequest
 
 void purple_privatekey_pool_retrieve_request(
 	PurplePrivateKeyPool *pool, const gchar *id,
-//	PurplePrivateKeyPoolRetrieveRequestOkCb ok_cb,
-//	PurplePrivateKeyPoolCancelCb cancel_cb,
 	GCallback ok_cb,
 	GCallback cancel_cb,
 	void* user_data)
@@ -298,7 +275,6 @@ void purple_privatekey_pool_retrieve_request(
 	
 
 	data = g_new0(privatekey_pool_req_data, 1);
-	g_return_if_fail(data);
 
 	data->key = NULL;
 	data->pool = pool;
@@ -348,8 +324,6 @@ privatekey_pool_req_store_ok_cb(privatekey_pool_req_data *data, PurpleRequestFie
 void 
 purple_privatekey_pool_store_request(
 	PurplePrivateKeyPool *pool, const gchar *id, PurplePrivateKey *key,
-//	PurplePrivateKeyPoolStoreRequestOkCb ok_cb,
-//	PurplePrivateKeyPoolCancelCb cancel_cb,
 	GCallback ok_cb,
 	GCallback cancel_cb,
 	void* user_data)
@@ -364,7 +338,6 @@ purple_privatekey_pool_store_request(
 	
 
 	data = g_new0(privatekey_pool_req_data, 1);
-	g_return_if_fail(data);
 
 	data->key = key;
 	data->pool = pool;
