@@ -1409,14 +1409,8 @@ x509_import_key(const gchar * filename, const gchar * password)
 	keydat->refcount = 0;
 
 	key = g_new0(PurplePrivateKey, 1);
-	if (NULL == key) {
-		gnutls_x509_privkey_deinit(keydat->key);
-		g_free(keydat);
-		return NULL;
-	}
-
 	key->scheme = &x509_key_gnutls;
-	key->data = keydat; 
+	key->data = x509_keydata_addref(keydat); 
 
 	if (read_pkcs8_file(filename, &dt, &fmt)) {
 		rv = gnutls_x509_privkey_import_pkcs8(keydat->key, &dt, fmt, password, 0);
@@ -2175,9 +2169,6 @@ x509_export_pkcs12_to_filename(const gchar* filename, const gchar* password, Pur
 
 	size += 100;
 	key_buf = g_new0(char, size);
-	if (!key_buf) {
-		goto done;
-	}
 
 	result = gnutls_x509_privkey_export_pkcs8 (key, GNUTLS_X509_FMT_DER,
 					password, flags, key_buf, &size);
@@ -2244,10 +2235,6 @@ x509_export_pkcs12_to_filename(const gchar* filename, const gchar* password, Pur
 	}
 
 	out_buf = g_new0(char, size);
-	if (NULL == out_buf) {
-		purple_debug_error("gnutls/pkcs12", "output buf allocation failure\n");
-		goto done;
-	}
 
 	result = gnutls_pkcs12_export (pkcs12, GNUTLS_X509_FMT_PEM, out_buf, &size);
 	if (result < 0) {
