@@ -84,11 +84,13 @@ C_SRC =	\
 			network.c \
 			notify.c \
 			ntlm.c \
+			pkcs12.c \
 			plugin.c \
 			pluginpref.c \
 			pounce.c \
 			prefs.c \
 			privacy.c \
+			privatekey.c \
 			proxy.c \
 			prpl.c \
 			request.c \
