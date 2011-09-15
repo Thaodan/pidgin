@@ -27,6 +27,7 @@
 #include "utsname.h"
 #include <string.h>
 #include <stdio.h>
+#include <glib.h>
 
 /* ANONYMOUS unions and structs are used from the windows header definitions.
    These need to be defined for them to work correctly with gcc2.95.2-mingw. */
