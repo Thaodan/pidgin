@@ -296,7 +296,7 @@ GList* jabber_get_account_options()
 	options = g_list_append(options, option);
 
 	
-	ADD_VALUE(certificates, _("None"), "none"); /* hopefully we don't have a cert id of none */
+	ADD_VALUE(certificates, _(""), "");
 	cert_pool = purple_certificate_find_pool("x509", "user");
 	if (cert_pool) {
 		GList *id_list = NULL;
