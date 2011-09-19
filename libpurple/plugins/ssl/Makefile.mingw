@@ -24,13 +24,13 @@ NEEDED_DLLS = \
 			$(NSS_TOP)/lib/nssutil3.dll \
 			$(NSS_TOP)/lib/smime3.dll \
 			$(NSS_TOP)/lib/softokn3.dll \
-                        $(NSS_TOP)/lib/sqlite3.dll \
+			$(NSS_TOP)/lib/sqlite3.dll \
 			$(NSS_TOP)/lib/ssl3.dll \
 			$(GNUTLS_TOP)/bin/libgnutls-26.dll \
 			$(GNUTLS_TOP)/bin/libgnutls-extra-26.dll \
 			$(GNUTLS_TOP)/bin/libgcrypt-11.dll \
 			$(GNUTLS_TOP)/bin/libtasn1-3.dll \
-			$(GNUTLS_TOP)/bin/libgpg-error-0.dll \
+			$(GNUTLS_TOP)/bin/libgpg-error-0.dll
 
 
 ##
