@@ -70,6 +70,18 @@ static gnutls_priority_t default_priority = NULL;
 static GHashTable *host_priorities = NULL;
 #endif
 
+static unsigned int
+gnutls_get_default_crypt_flags()
+{
+#if GNUTLS_MAJOR_VERSION >= 2 && GNUTLS_MINOR_VERSION >= 10
+	purple_debug_info("gnutls", "Using AES 256 to encrypt.\n");
+	return GNUTLS_PKCS_USE_PBES2_AES_256;
+#else
+	purple_debug_info("gnutls", "Using 3DES to encrypt.\n");
+	return GNUTLS_PKCS_USE_PBES2_3DES;
+#endif
+}
+
 static void
 ssl_gnutls_log(int level, const char *str)
 {
@@ -82,6 +94,8 @@ ssl_gnutls_init_gnutls(void)
 {
 	const char *debug_level;
 	const char *host_priorities_str;
+
+	purple_debug_info("gnutls", "libgnutls version = %s\n", gnutls_check_version(NULL));
 
 	debug_level = g_getenv("PURPLE_GNUTLS_DEBUG");
 	if (debug_level) {
@@ -1347,8 +1361,11 @@ x509_keydata_delref(x509_keydata_t *kd)
 	/* If the refcount reaches zero, kill the structure */
 	if (kd->refcount <= 0) {
 		/* Kill the internal data */
-		if (kd->key)
+		if (kd->key) {
+			purple_debug_info("gnutls", "deinit gnutls_x509_privkey_t %p\n", kd->key);
 			gnutls_x509_privkey_deinit( kd->key );
+		}
+		purple_debug_info("gnutls", "free x509_key_data_t\n");
 		/* And kill the struct */
 		g_free( kd );
 	}
@@ -1370,13 +1387,11 @@ read_pkcs8_file(const gchar* filename, gnutls_datum_t *dt, gnutls_x509_crt_fmt_t
 	/* Next, we'll simply yank the entire contents of the file
 	   into memory */
 	/* TODO: Should I worry about very large files here? */
-	g_return_val_if_fail(
-		g_file_get_contents(filename,
-			    &buf,
-			    &buf_sz,
-			    NULL      /* No error checking for now */
-		),
-		FALSE);
+	if (!g_file_get_contents(filename,
+			&buf, &buf_sz, NULL /* No error checking for now */)) {
+		if (buf != NULL) g_free(buf);
+		return FALSE;
+	}
 	
 	*fmt = GNUTLS_X509_FMT_DER;
 	#define PEM_PKCS8_HDR "-----BEGIN ENCRYPTED PRIVATE KEY-----"
@@ -1414,12 +1429,15 @@ x509_import_key(const gchar * filename, const gchar * password)
 
 	if (read_pkcs8_file(filename, &dt, &fmt)) {
 		rv = gnutls_x509_privkey_import_pkcs8(keydat->key, &dt, fmt, password, 0);
+		g_free(dt.data);
+		purple_debug_info("gnutls", "New gnutls_x509_privkey_t %p\n", keydat->key);
 		if (GNUTLS_E_SUCCESS != rv) {
 			purple_debug_error("gnutls/x509key",
 					   "Error importing key from %s: %s\n",
 					   filename, gnutls_strerror(rv));
 			gnutls_x509_privkey_deinit(keydat->key);
 			g_free(keydat);
+			g_free(key);
 			return NULL;
 		}
 	}
@@ -1445,8 +1463,7 @@ x509_export_key(const gchar *filename, PurplePrivateKey *key, const gchar* passw
 
 	key_dat = X509_GET_GNUTLS_KEYDATA(key);
 
-	/* TODO: Check version of gnutls and use AES if possible */
-	flags = GNUTLS_PKCS_USE_PBES2_3DES;
+	flags = gnutls_get_default_crypt_flags();
 
 	/* Obtain the output size required */
 	out_size = 0;
@@ -1455,7 +1472,7 @@ x509_export_key(const gchar *filename, PurplePrivateKey *key, const gchar* passw
 					       flags,
 	 				       NULL, /* Provide no buffer yet */
 					       &out_size /* Put size here */);
-	purple_debug_error("gnutls/x509key", "querying for size and export pkcs8 returned (%d) %s with size %d\n",
+	purple_debug_error("gnutls/x509key", "querying for size and export pkcs8 returned (%d) %s with size %zd\n",
 			ret, gnutls_strerror(ret), out_size);
 	g_return_val_if_fail(ret == GNUTLS_E_SHORT_MEMORY_BUFFER, FALSE);
 
@@ -1522,6 +1539,7 @@ x509_destroy_key(PurplePrivateKey * key)
 		return;
 	}
 
+	purple_debug_info("gnutls", "Destroying PurplePrivateKey\n");
 	/* Use the reference counting system to free (or not) the
 	   underlying data */
 	x509_keydata_delref((x509_keydata_t *)key->data);
@@ -1956,6 +1974,7 @@ x509_import_pkcs12_from_file(const gchar* filename,
 		purple_debug_error("gnutls",
 			"Failed to load PKCS12 file from %s\n",
 			filename);
+		g_free(dt.data);
 		return FALSE;
 	}
 
@@ -1965,10 +1984,12 @@ x509_import_pkcs12_from_file(const gchar* filename,
 	if (GNUTLS_E_SUCCESS != rv) {
 		purple_debug_error("gnutls/x509",
 			"pkcs12_init error: %s\n", gnutls_strerror(rv));
+		g_free(dt.data);
 		return FALSE;
 	}
 
 	rv = gnutls_pkcs12_import(p12, &dt, fmt, 0);
+	g_free(dt.data);
 	if (GNUTLS_E_SUCCESS != rv) {
 		purple_debug_error("gnutls/x509",
 			"pkcs12_import error: %s\n", gnutls_strerror(rv));
@@ -1996,7 +2017,6 @@ x509_import_pkcs12_from_file(const gchar* filename,
 	keydat->refcount = 0;
 
 	rv = parse_pkcs12 (res, p12, password, &(keydat->key), &(crtdat->crt), &crl);
-//	gnutls_pkcs12_deinit (p12);
 	if (GNUTLS_E_SUCCESS != rv) {
 		purple_debug_error("gnutls/x509",
 			"parse_pkcs12 error: %s\n", gnutls_strerror(rv));
@@ -2017,6 +2037,10 @@ x509_import_pkcs12_from_file(const gchar* filename,
 			"%s get a cert. %s get a key",
 			crtdat->crt ? "Did" : "Did not",
 			keydat->key ? "Did" : "Did not");
+		gnutls_x509_crt_deinit (crtdat->crt);
+		gnutls_x509_privkey_deinit(keydat->key);
+		g_free(crtdat);
+		g_free(keydat);
 		return FALSE;
 	}
 
@@ -2029,7 +2053,7 @@ x509_import_pkcs12_from_file(const gchar* filename,
 	(*key)->data = x509_keydata_addref(keydat);
 
 	/* check if the key and certificate found match */
-#if 0
+#if 0 /* TODO ljf */
 	if (key && (ret = _gnutls_check_key_cert_match (res)) < 0) {
 		gnutls_assert ();
 		to done;
@@ -2051,7 +2075,6 @@ x509_export_pkcs12_to_filename(const gchar* filename, const gchar* password, Pur
 	int result;
 	size_t size;
 	gnutls_datum_t data;
-	const char *pass;
 	const char *name;
 	unsigned int flags, i;
 	gnutls_datum_t key_id;
@@ -2122,8 +2145,7 @@ x509_export_pkcs12_to_filename(const gchar* filename, const gchar* password, Pur
 			goto done;
 		}
 
-		/* TODO: Check GNUTLS version and use AES if possible */
-		flags = GNUTLS_PKCS_USE_PBES2_3DES;
+		flags = gnutls_get_default_crypt_flags();
 
 		result = gnutls_pkcs12_bag_encrypt (bag, password, flags);
 		if (result < 0) {
@@ -2148,32 +2170,24 @@ x509_export_pkcs12_to_filename(const gchar* filename, const gchar* password, Pur
 		goto done;
 	}
 
-	/* TODO: Check GNUTLS version and use AES if possible */
-	flags = GNUTLS_PKCS_USE_PBES2_3DES;
-
+	flags = gnutls_get_default_crypt_flags();
 	size = 0;
 	result = gnutls_x509_privkey_export_pkcs8 (key, GNUTLS_X509_FMT_DER,
-					pass, flags, NULL, &size);
+					password, flags, NULL, &size);
 
 	if (result != GNUTLS_E_SHORT_MEMORY_BUFFER) {
 		purple_debug_error("gnutls/pkcs12", "Can't get pkcs8 memory size.\n");
 		goto done;
 	}
 
-	purple_debug_info("gnutls/pkcs12", "Got pkcs8 export memory size = %d\n", size);
+	purple_debug_info("gnutls/pkcs12", "Got pkcs8 export memory size = %zd\n", size);
 
-	/* TODO: Above should give us the correct size, but doesn't. In fact, it seems
-	 * everytime I call it with the new buffer it wants something bigger. So we just
-	 * add on extra 100 bytes and hope for the best.
-	 */
-
-	size += 100;
 	key_buf = g_new0(char, size);
 
 	result = gnutls_x509_privkey_export_pkcs8 (key, GNUTLS_X509_FMT_DER,
 					password, flags, key_buf, &size);
 	if (result < 0) {
-		purple_debug_error("gnutls/pkcs12", "key_export: size: %d; error: %s\n",
+		purple_debug_error("gnutls/pkcs12", "key_export: size: %zd; error: %s\n",
 			size, gnutls_strerror (result));
 		goto done;
 	}
