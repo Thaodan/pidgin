@@ -73,7 +73,7 @@ static GHashTable *host_priorities = NULL;
 static unsigned int
 gnutls_get_default_crypt_flags()
 {
-#if GNUTLS_MAJOR_VERSION >= 2 && GNUTLS_MINOR_VERSION >= 10
+#if GNUTLS_VERSION_MAJOR >= 2 && GNUTLS_VERSION_MINOR >= 10
 	purple_debug_info("gnutls", "Using AES 256 to encrypt.\n");
 	return GNUTLS_PKCS_USE_PBES2_AES_256;
 #else
@@ -87,6 +87,49 @@ ssl_gnutls_log(int level, const char *str)
 {
 	/* GnuTLS log messages include the '\n' */
 	purple_debug_misc("gnutls", "lvl %d: %s", level, str);
+}
+
+
+/*
+ * GNUTLS doesn't offer a means to pass custom context to the certificate 
+ * retrieve function (yeah, not good design) so we have to declare globals
+ * to hold the cert/key chosen by the user. We don't just set the 
+ * gnutls_certificate_client_creds and let gnutls figure it out because servers
+ * aren't good about listing all intermediate CAs in the CERTIFICATE REQUEST
+ * message. This will break clients that have a cert issued by an intermediate
+ * CA. We just return whatever cert the client selected instead.
+ */
+static gnutls_x509_crt_t client_auth_certs[1] = { NULL };
+static gnutls_x509_privkey_t client_auth_key = NULL;
+
+static int
+ssl_gnutls_certificate_retrieve_function(
+		gnutls_session_t session,
+		const gnutls_datum_t* req_ca_dn, int nreqs,
+		const gnutls_pk_algorithm_t* pk_algos, int pk_algos_length,
+		gnutls_retr_st* st)
+{
+	if (NULL == client_auth_certs[0]) {
+		purple_debug_error("gnutls", "Tried to retrieve a client cert but none was set.\n");
+		return -1;
+	}
+
+	if (NULL == client_auth_key) {
+		purple_debug_error("gnutls", "Tried to retrieve a client key but none was set.\n");
+		return -1;
+	}
+
+	purple_debug_info("gnutls", "retrieving certificates for the ssl handshake\n");
+
+	/* TODO: Check that client_auth_certs algo matches pk_algos */
+
+	st->type = GNUTLS_CRT_X509;
+	st->cert.x509 = client_auth_certs;
+	st->ncerts = 1;
+	st->key.x509 = client_auth_key;
+	st->deinit_all = 0;
+
+	return 0;
 }
 
 static void
@@ -192,7 +235,8 @@ ssl_gnutls_init_gnutls(void)
 	/* TODO: I can likely remove this */
 	gnutls_certificate_set_x509_trust_file(xcred, "ca.pem",
 		GNUTLS_X509_FMT_PEM);
-//	gnutls_certificate_set_x509_simple_pkcs12_file(xcred, "test.p12", GNUTLS_X509_FMT_DER, "abcd");
+	
+	gnutls_certificate_client_set_retrieve_function(xcred, ssl_gnutls_certificate_retrieve_function);
 }
 
 static gboolean
@@ -2314,7 +2358,8 @@ static PurplePkcs12Scheme pkcs12_gnutls = {
  **********************************************************************/
 
 static gboolean
-ssl_gnutls_set_client_auth(gnutls_certificate_client_credentials cred, PurpleCertificate * pcrt, PurplePrivateKey * pkey)
+ssl_gnutls_set_client_auth(gnutls_certificate_client_credentials cred,
+		PurpleCertificate * pcrt, PurplePrivateKey * pkey)
 {
 	gnutls_x509_crt_t cert_list[1];
 	int rv;
@@ -2324,8 +2369,14 @@ ssl_gnutls_set_client_auth(gnutls_certificate_client_credentials cred, PurpleCer
 	g_return_val_if_fail(pcrt->scheme == &x509_gnutls, FALSE);
 	g_return_val_if_fail(pkey->scheme == &x509_key_gnutls, FALSE);
 
-	if (NULL != xcred) {	
+	if (NULL != xcred) {
+		/* Set global state for creds to return when server 
+		 * requests a client certificate */
+		client_auth_certs[0] = X509_GET_GNUTLS_DATA(pcrt);
+		client_auth_key = X509_GET_GNUTLS_KEYDATA(pkey);
+
 		cert_list[0] = X509_GET_GNUTLS_DATA(pcrt);
+#if 0
 		rv = gnutls_certificate_set_x509_key(cred, cert_list, 1, X509_GET_GNUTLS_KEYDATA(pkey));
 		if (GNUTLS_E_SUCCESS != rv) {
 			purple_debug_error("gnutls/ssl",
@@ -2333,6 +2384,7 @@ ssl_gnutls_set_client_auth(gnutls_certificate_client_credentials cred, PurpleCer
 					  gnutls_strerror(rv));
 			return FALSE;
 		}
+#endif
 		return TRUE;
 	}
 
