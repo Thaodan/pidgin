@@ -607,6 +607,17 @@ struct _PurplePluginProtocolInfo
 	void (*get_public_alias)(PurpleConnection *gc,
 	                         PurpleGetPublicAliasSuccessCallback success_cb,
 	                         PurpleGetPublicAliasFailureCallback failure_cb);
+
+	/**
+	 * Get account options for this protocol. Allows dynamic generation
+	 * of account options or values. Either this or protocol_options (above) should be
+	 * used. It should update protocol_options field with the new list when called.
+	 * Yes, we could call this updateAccountOptions, but it would be nice to move
+	 * away from just a field to a field getter.
+	 *
+	 * @returns GList of PurpleAccountOption
+	 */
+	GList *(*get_account_options)();
 };
 
 #define PURPLE_PROTOCOL_PLUGIN_HAS_FUNC(prpl, member) \
