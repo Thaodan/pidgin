@@ -194,7 +194,6 @@ typedef enum
 	 * along with an invitation.
 	 */
 	OPT_PROTO_INVITE_MESSAGE = 0x00000800
-
 } PurpleProtocolOptions;
 
 /**
