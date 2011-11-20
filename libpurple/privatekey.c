@@ -259,7 +259,8 @@ privatekey_pool_req_retrieve_ok_cb(privatekey_pool_req_data *data, PurpleRequest
 }
 
 void purple_privatekey_pool_retrieve_request(
-	PurplePrivateKeyPool *pool, const gchar *id,
+	PurplePrivateKeyPool *pool,
+	const gchar *friendly_name, const gchar *id,
 	GCallback ok_cb,
 	GCallback cancel_cb,
 	void* user_data)
@@ -283,7 +284,7 @@ void purple_privatekey_pool_retrieve_request(
 	data->cancel_cb = G_CALLBACK(cancel_cb);
 	data->user_data = user_data;
 
-	msg = g_strdup_printf(_("Enter the password protecting the key named \"%s\""), id);
+	msg = g_strdup_printf(_("Enter the password protecting the key named \"%s\""), friendly_name);
 	purple_privatekey_pool_request_password(
 		msg,
 		pool,
@@ -323,7 +324,9 @@ privatekey_pool_req_store_ok_cb(privatekey_pool_req_data *data, PurpleRequestFie
 
 void 
 purple_privatekey_pool_store_request(
-	PurplePrivateKeyPool *pool, const gchar *id, PurplePrivateKey *key,
+	PurplePrivateKeyPool *pool,
+	const gchar *friendly_name, const gchar *id,
+	PurplePrivateKey *key,
 	GCallback ok_cb,
 	GCallback cancel_cb,
 	void* user_data)
@@ -346,7 +349,7 @@ purple_privatekey_pool_store_request(
 	data->cancel_cb = G_CALLBACK(cancel_cb);
 	data->user_data = user_data;
 
-	msg = g_strdup_printf(_("Enter a password to protect the key named \"%s\""), id);
+	msg = g_strdup_printf(_("Enter a password to protect the key named \"%s\""), friendly_name);
 	purple_privatekey_pool_request_password(
 		msg,
 		pool,

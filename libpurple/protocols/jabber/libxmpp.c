@@ -272,6 +272,7 @@ GList* jabber_get_account_options()
 	GList *options = NULL;
 	GList *encryption_values = NULL;
 	PurpleCertificatePool *cert_pool = NULL;
+	PurplePrivateKeyPool *key_pool = NULL;
 	GList *certificates = NULL;
 	
 	/* Destroy the current option list so we can recreated it. 
@@ -301,19 +302,21 @@ GList* jabber_get_account_options()
 	
 	ADD_VALUE(certificates, _("None"), "none"); /* hopefully we don't have a cert id of none */
 	cert_pool = purple_certificate_find_pool("x509", "user");
-	if (cert_pool) {
+	key_pool = purple_privatekey_find_pool("x509", "user");
+	if (cert_pool && key_pool) {
 		GList *id_list = NULL;
 		GList *item = NULL;
 		PurpleCertificate *cert = NULL;
 
-		id_list = purple_certificate_pool_get_idlist(cert_pool);
+		/* Only display certificates that have a private key */
+		id_list = purple_privatekey_pool_get_idlist(key_pool);
 		for (item = id_list; item != NULL; item = item->next) {
 			gchar* id = item->data;
 			cert = purple_certificate_pool_retrieve(cert_pool, id);
 			if (cert) {
 				PurpleKeyValuePair *kvp = g_new0(PurpleKeyValuePair, 1);
-				kvp->key = g_strdup(id);
-				kvp->value = purple_certificate_get_subject_name(cert);
+				kvp->key = purple_certificate_get_subject_name(cert);
+				kvp->value = g_strdup(id);
 				certificates = g_list_append(certificates, kvp);
 				purple_debug_info("xmpp/accountopt", "added cert %s to acct opt list\n", id);
 			}
@@ -321,7 +324,7 @@ GList* jabber_get_account_options()
 				purple_debug_warning("xmpp/accountopt", "Failed to find cert for id %s\n", id);
 			}
 		}
-		purple_certificate_pool_destroy_idlist(id_list);
+		purple_privatekey_pool_destroy_idlist(id_list);
 	}
 
 	option = purple_account_option_list_new(_("Login certificate"), "certificate_id", certificates);

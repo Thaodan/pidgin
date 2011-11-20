@@ -82,6 +82,31 @@ gnutls_get_default_crypt_flags()
 #endif
 }
 
+/* Taken from gchecksum.c */
+static gchar hex_digits[] = "0123456789abcdef";
+
+static gchar *
+hex_encode(guint8 *buf, gsize buf_len)
+{
+  gint len = buf_len * 2;
+  gint i;
+  gchar *retval;
+
+  retval = g_new (gchar, len + 1);
+
+  for (i = 0; i < len; i++)
+    {
+      guint8 byte = buf[i];
+
+      retval[2 * i] = hex_digits[byte >> 4];
+      retval[2 * i + 1] = hex_digits[byte & 0xf];
+    }
+
+  retval[len] = 0;
+
+  return retval;
+}
+
 static void
 ssl_gnutls_log(int level, const char *str)
 {
@@ -236,7 +261,7 @@ ssl_gnutls_init_gnutls(void)
 	gnutls_certificate_set_x509_trust_file(xcred, "ca.pem",
 		GNUTLS_X509_FMT_PEM);
 	
-	gnutls_certificate_client_set_retrieve_function(xcred, ssl_gnutls_certificate_retrieve_function);
+/*	gnutls_certificate_client_set_retrieve_function(xcred, ssl_gnutls_certificate_retrieve_function);*/
 }
 
 static gboolean
@@ -755,7 +780,7 @@ x509_crtdata_delref(x509_crtdata_t *cd)
 }
 
 /** Helper macro to retrieve the GnuTLS crt_t from a PurpleCertificate */
-#define X509_GET_GNUTLS_DATA(pcrt) ( ((x509_crtdata_t *) (pcrt->data))->crt)
+#define X509_GET_GNUTLS_DATA(pcrt) ( ((x509_crtdata_t *) ((pcrt)->data))->crt)
 
 /** Transforms a gnutls_datum containing an X.509 certificate into a Certificate instance under the x509_gnutls scheme.
  *
@@ -1600,6 +1625,7 @@ x509_get_unique_key_id(PurplePrivateKey *key)
 	int ret;
 	guchar * out_buf = NULL; /* Data to output */
 	size_t out_size = 0; /* Output size */
+	gchar* id;
 
 	g_return_val_if_fail(key, FALSE);
 	g_return_val_if_fail(key->scheme == &x509_key_gnutls, FALSE);
@@ -1623,7 +1649,9 @@ x509_get_unique_key_id(PurplePrivateKey *key)
 		return NULL;
 	}
 
-	return (gchar*)out_buf;
+	id = hex_encode(out_buf, out_size);
+	g_free(out_buf);
+	return id;
 }
 
 static PurplePrivateKeyScheme x509_key_gnutls = {
@@ -1657,307 +1685,321 @@ static PurplePrivateKeyScheme x509_key_gnutls = {
  * SSL crypto backend supply its own keystore???
  */
 
-#define gnutls_assert() purple_debug_info("gnutls/x509", "parse_pkcs12")
-
 static int
-parse_pkcs12 (gnutls_certificate_credentials_t res,
-	      gnutls_pkcs12_t p12,
-	      const char *password,
-	      gnutls_x509_privkey_t * key,
-	      gnutls_x509_crt_t * cert, gnutls_x509_crl_t * crl)
+parse_pkcs12(gnutls_pkcs12_t p12,
+	     const char *password,
+	     GList **keys, /* gnutls_x509_privkey_t */
+	     GList **crts, /* gnutls_x509_crt_t */
+	     GList **crls) /* gnutlx_x509_crl_t */
 {
-  gnutls_pkcs12_bag_t bag = NULL;
-  int idx = 0;
-  int ret;
-  size_t cert_id_size = 0;
-  size_t key_id_size = 0;
-  unsigned char cert_id[20];
-  unsigned char key_id[20];
-  int privkey_ok = 0;
+	gnutls_pkcs12_bag_t bag = NULL;
+	int idx = 0;
+	int ret;
+/*
+	size_t cert_id_size = 0;
+	size_t key_id_size = 0;
+	unsigned char cert_id[20];
+	unsigned char key_id[20];
+*/
+	int privkey_ok = 0;
 
-  *cert = NULL;
-  *key = NULL;
-  *crl = NULL;
+	gnutls_x509_crt_t cert = NULL;
+	gnutls_x509_privkey_t key = NULL;
+	gnutls_x509_crl_t crl = NULL;
 
-  /* find the first private key */
-  for (;;)
-    {
-      int elements_in_bag;
-      int i;
+	g_return_val_if_fail(keys, -1);
 
-      ret = gnutls_pkcs12_bag_init (&bag);
-      if (ret < 0)
-	{
-	  bag = NULL;
-	  gnutls_assert ();
-	  goto done;
-	}
+	/* find the first private key */
+	for (;;) {
+		int elements_in_bag;
+		int i;
 
-      ret = gnutls_pkcs12_get_bag (p12, idx, bag);
-      if (ret == GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE)
-	break;
-      if (ret < 0)
-	{
-	  gnutls_assert ();
-	  goto done;
-	}
-
-      ret = gnutls_pkcs12_bag_get_type (bag, 0);
-      if (ret < 0)
-	{
-	  gnutls_assert ();
-	  goto done;
-	}
-
-      if (ret == GNUTLS_BAG_ENCRYPTED)
-	{
-	  ret = gnutls_pkcs12_bag_decrypt (bag, password);
-	  if (ret < 0)
-	    {
-	      gnutls_assert ();
-	      goto done;
-	    }
-	}
-
-      elements_in_bag = gnutls_pkcs12_bag_get_count (bag);
-      if (elements_in_bag < 0)
-	{
-	  gnutls_assert ();
-	  goto done;
-	}
-
-      for (i = 0; i < elements_in_bag; i++)
-	{
-	  int type;
-	  gnutls_datum_t data;
-
-	  type = gnutls_pkcs12_bag_get_type (bag, i);
-	  if (type < 0)
-	    {
-	      gnutls_assert ();
-	      goto done;
-	    }
-
-	  ret = gnutls_pkcs12_bag_get_data (bag, i, &data);
-	  if (ret < 0)
-	    {
-	      gnutls_assert ();
-	      goto done;
-	    }
-
-	  switch (type)
-	    {
-	    case GNUTLS_BAG_PKCS8_ENCRYPTED_KEY:
-	    case GNUTLS_BAG_PKCS8_KEY:
-	      if (*key != NULL)	/* too simple to continue */
-		{
-		  gnutls_assert ();
-		  break;
+		ret = gnutls_pkcs12_bag_init(&bag);
+		if (ret < 0) {
+			bag = NULL;
+			purple_debug_error("gnutls/pkcs12",
+				"Error initing pkcs12 bag\n");
+			goto done;
 		}
 
-	      ret = gnutls_x509_privkey_init (key);
-	      if (ret < 0)
-		{
-		  gnutls_assert ();
-		  goto done;
+		ret = gnutls_pkcs12_get_bag(p12, idx, bag);
+		if (ret == GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE)
+			break;
+		if (ret < 0) {
+			purple_debug_error("gnutls/pkcs12",
+				"Error getting bag %d from pkcs12\n", idx);
+			goto done;
 		}
 
-	      ret = gnutls_x509_privkey_import_pkcs8
-		(*key, &data, GNUTLS_X509_FMT_DER, password,
-		 type == GNUTLS_BAG_PKCS8_KEY ? GNUTLS_PKCS_PLAIN : 0);
-	      if (ret < 0)
-		{
-		  gnutls_assert ();
-		  gnutls_x509_privkey_deinit (*key);
-		  goto done;
+		ret = gnutls_pkcs12_bag_get_type(bag, 0);
+		if (ret < 0) {
+			purple_debug_error("gnutls/pkcs12",
+				"Error getting type for bag %d\n", idx);
+			goto done;
 		}
 
-	      key_id_size = sizeof (key_id);
-	      ret =
-		gnutls_x509_privkey_get_key_id (*key, 0, key_id,
-						&key_id_size);
-	      if (ret < 0)
-		{
-		  gnutls_assert ();
-		  gnutls_x509_privkey_deinit (*key);
-		  goto done;
+		if (ret == GNUTLS_BAG_ENCRYPTED) {
+			ret = gnutls_pkcs12_bag_decrypt(bag, password);
+			if (ret < 0) {
+				purple_debug_error("gnutls/pkcs12",
+					"Error decrypting bag %d\n", idx);
+				goto done;
+			}
 		}
 
-	      privkey_ok = 1;	/* break */
-	      break;
-	    default:
-	      break;
-	    }
+		elements_in_bag = gnutls_pkcs12_bag_get_count(bag);
+		if (elements_in_bag < 0) {
+			purple_debug_error("gnutls/pkcs12",
+				"Error getting count for bag %d\n", idx);
+			goto done;
+		}
+
+		for (i = 0; i < elements_in_bag; i++) {
+			int type;
+			gnutls_datum_t data;
+
+			type = gnutls_pkcs12_bag_get_type(bag, i);
+			if (type < 0) {
+				purple_debug_error("gnutls/pkcs12",
+					"Error getting type for item %d in bag %d\n", i, idx);
+				goto done;
+			}
+
+			ret = gnutls_pkcs12_bag_get_data(bag, i, &data);
+			if (ret < 0) {
+				purple_debug_error("gnutls/pkcs12",
+					"Error getting item %d from bag %d\n", i, idx);
+				goto done;
+			}
+
+			switch (type) {
+			case GNUTLS_BAG_PKCS8_ENCRYPTED_KEY:
+			case GNUTLS_BAG_PKCS8_KEY:
+				if (privkey_ok == 1) { /* too simple to continue */
+					purple_debug_error("gnutls/pkcs12",
+						"Already found a key.\n");
+					break;
+				}
+
+				ret = gnutls_x509_privkey_init(&key);
+				if (ret < 0) {
+					purple_debug_error("gnutls/pkcs12",
+						"Failed to init x509_privkey.\n");
+					goto done;
+				}
+
+				ret = gnutls_x509_privkey_import_pkcs8(
+					key, &data, GNUTLS_X509_FMT_DER, password,
+					type == GNUTLS_BAG_PKCS8_KEY ? GNUTLS_PKCS_PLAIN : 0);
+				if (ret < 0) {
+					purple_debug_error("gnutls/pkcs12",
+						"Failed to import pkcs8 key from item %d in bag %d\n", i, idx);
+					gnutls_x509_privkey_deinit(key);
+					goto done;
+				}
+
+				purple_debug_info("gnutls/pkcs12",
+					"Found key in item %d of bag %d\n", i, idx);
+				*keys = g_list_append(*keys, key);
+#if 0
+				key_id_size = sizeof (key_id);
+				ret = gnutls_x509_privkey_get_key_id(
+					*key, 0, key_id, &key_id_size);
+				if (ret < 0) {
+					purple_debug_error("gnutls/pkcs12",
+						"Failed to get key id from bag %d\n", idx);
+					gnutls_x509_privkey_deinit (*key);
+					goto done;
+				}
+#endif
+				privkey_ok = 1;	/* break */
+				break;
+			default:
+				break;
+			}
+		}
+
+		idx++;
+		gnutls_pkcs12_bag_deinit(bag);
+
+		if (privkey_ok != 0)	/* private key was found */
+			break;
 	}
 
-      idx++;
-      gnutls_pkcs12_bag_deinit (bag);
-
-      if (privkey_ok != 0)	/* private key was found */
-	break;
-    }
-
-  if (privkey_ok == 0)		/* no private key */
-    {
-      gnutls_assert ();
-      return GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE;
-    }
-
-  /* now find the corresponding certificate 
-   */
-  idx = 0;
-  bag = NULL;
-  for (;;)
-    {
-      int elements_in_bag;
-      int i;
-
-      ret = gnutls_pkcs12_bag_init (&bag);
-      if (ret < 0)
-	{
-	  bag = NULL;
-	  gnutls_assert ();
-	  goto done;
+	if (privkey_ok == 0) {/* no private key */
+		purple_debug_error("gnutls/pkcs12",
+			"No private key found in pkcs12 file\n");
+		return GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE;
 	}
 
-      ret = gnutls_pkcs12_get_bag (p12, idx, bag);
-      if (ret == GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE)
-	break;
-      if (ret < 0)
-	{
-	  gnutls_assert ();
-	  goto done;
-	}
+	/* now find the corresponding certificate 
+	*/
+	idx = 0;
+	bag = NULL;
+	for (;;) {
+		int elements_in_bag;
+		int i;
 
-      ret = gnutls_pkcs12_bag_get_type (bag, 0);
-      if (ret < 0)
-	{
-	  gnutls_assert ();
-	  goto done;
-	}
-
-      if (ret == GNUTLS_BAG_ENCRYPTED)
-	{
-	  ret = gnutls_pkcs12_bag_decrypt (bag, password);
-	  if (ret < 0)
-	    {
-	      gnutls_assert ();
-	      goto done;
-	    }
-	}
-
-      elements_in_bag = gnutls_pkcs12_bag_get_count (bag);
-      if (elements_in_bag < 0)
-	{
-	  gnutls_assert ();
-	  goto done;
-	}
-
-      for (i = 0; i < elements_in_bag; i++)
-	{
-	  int type;
-	  gnutls_datum_t data;
-
-	  type = gnutls_pkcs12_bag_get_type (bag, i);
-	  if (type < 0)
-	    {
-	      gnutls_assert ();
-	      goto done;
-	    }
-
-	  ret = gnutls_pkcs12_bag_get_data (bag, i, &data);
-	  if (ret < 0)
-	    {
-	      gnutls_assert ();
-	      goto done;
-	    }
-
-	  switch (type)
-	    {
-	    case GNUTLS_BAG_CERTIFICATE:
-	      if (*cert != NULL)	/* no need to set it again */
-		{
-		  gnutls_assert ();
-		  break;
+		ret = gnutls_pkcs12_bag_init(&bag);
+		if (ret < 0) {
+			bag = NULL;
+			purple_debug_error("gnutls/pkcs12",
+				"pkcs12 bag init failed\n");
+			goto done;
 		}
 
-	      ret = gnutls_x509_crt_init (cert);
-	      if (ret < 0)
-		{
-		  gnutls_assert ();
-		  goto done;
+		ret = gnutls_pkcs12_get_bag(p12, idx, bag);
+		if (ret == GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE)
+			break;
+		if (ret < 0) {
+			purple_debug_error("gnutls/pkcs12",
+				"Failed to to get bag %d\n", idx);
+			goto done;
 		}
 
-	      ret =
-		gnutls_x509_crt_import (*cert, &data, GNUTLS_X509_FMT_DER);
-	      if (ret < 0)
-		{
-		  gnutls_assert ();
-		  gnutls_x509_crt_deinit (*cert);
-		  goto done;
+		ret = gnutls_pkcs12_bag_get_type(bag, 0);
+		if (ret < 0) {
+			purple_debug_error("gnutls/pkcs12",
+				"Failed getting type for bag %d\n", idx);
+			goto done;
 		}
 
-	      /* check if the key id match */
-	      cert_id_size = sizeof (cert_id);
-	      ret =
-		gnutls_x509_crt_get_key_id (*cert, KEYID_FLAG, cert_id, &cert_id_size);
-	      if (ret < 0)
-		{
-		  gnutls_assert ();
-		  gnutls_x509_crt_deinit (*cert);
-		  goto done;
+
+		if (ret == GNUTLS_BAG_ENCRYPTED) {
+			ret = gnutls_pkcs12_bag_decrypt(bag, password);
+			if (ret < 0) {
+				purple_debug_error("gnutls/pkcs12",
+					"Failed to decrypt bag %d\n", idx);
+				goto done;
+			}
 		}
 
-	      if (memcmp (cert_id, key_id, cert_id_size) != 0)
-		{		/* they don't match - skip the certificate */
-		  gnutls_x509_crt_deinit (*cert);
-		  *cert = NULL;
-		}
-	      break;
-
-	    case GNUTLS_BAG_CRL:
-	      if (*crl != NULL)
-		{
-		  gnutls_assert ();
-		  break;
+		elements_in_bag = gnutls_pkcs12_bag_get_count(bag);
+		if (elements_in_bag < 0) {
+			purple_debug_error("gnutls/pkcs12",
+				"Failed getting count for bag %d\n", idx);
+			goto done;
 		}
 
-	      ret = gnutls_x509_crl_init (crl);
-	      if (ret < 0)
-		{
-		  gnutls_assert ();
-		  goto done;
+		for (i = 0; i < elements_in_bag; i++) {
+			int type;
+			gnutls_datum_t data;
+
+			type = gnutls_pkcs12_bag_get_type(bag, i);
+			if (type < 0) {
+				purple_debug_error("gnutls/pkcs12",
+					"Failed getting type for item %d in bag %d\n", i, idx);
+				goto done;
+			}
+
+			ret = gnutls_pkcs12_bag_get_data(bag, i, &data);
+			if (ret < 0) {
+				purple_debug_error("gnutls/pkcs12",
+					"Failed getting item %d from bag %d\n", i, idx);
+				goto done;
+			}
+
+			switch (type) {
+			case GNUTLS_BAG_CERTIFICATE:
+#if 0
+				if (*cert != NULL) {	/* no need to set it again */
+					purple_debug_error("gnutls/pkcs12","");
+					break;
+				}
+#endif
+				/* Ignore certs if we didn't provide a list */
+				if (crts == NULL)
+					break;
+
+				ret = gnutls_x509_crt_init(&cert);
+	 			if (ret < 0) {
+					purple_debug_error("gnutls/pkcs12",
+						"Failed init x509_crt\n");
+					goto done;
+				}
+
+				ret = gnutls_x509_crt_import(
+					cert, &data, GNUTLS_X509_FMT_DER);
+				if (ret < 0) {
+					purple_debug_error("gnutls/pkcs12",
+						"Failed importing cert from item %d in bag %d\n", i, idx);
+					gnutls_x509_crt_deinit (cert);
+					goto done;
+				}
+
+				purple_debug_info("gnutls/pkcs12",
+					"Found cert in item %d of bag %d\n", i, idx);
+				*crts = g_list_append(*crts, cert);
+#if 0
+				/* check if the key id match */
+				cert_id_size = sizeof (cert_id);
+				ret = gnutls_x509_crt_get_key_id(
+					*cert, 0, cert_id, &cert_id_size);
+				if (ret < 0) {
+					purple_debug_error("gnutls/pkcs12","");();
+					gnutls_x509_crt_deinit (*cert);
+					goto done;
+				}
+
+				if (memcmp (cert_id, key_id, cert_id_size) != 0) {
+					/* they don't match - skip the certificate */
+					gnutls_x509_crt_deinit (*cert);
+					*cert = NULL;
+				}
+#endif
+				break;
+
+			case GNUTLS_BAG_CRL:
+#if 0
+				if (crl != NULL) {
+					purple_debug_error("gnutls/pkcs12","");();
+					break;
+				}
+#endif
+				/* Ignore crls if we didn't provide a list */
+				if (crls == NULL)
+					break;
+
+				ret = gnutls_x509_crl_init(&crl);
+				if (ret < 0) {
+					purple_debug_error("gnutls/pkcs12",
+						"Failed init x509_crl\n");
+					goto done;
+				}
+
+				ret = gnutls_x509_crl_import(crl, &data, GNUTLS_X509_FMT_DER);
+				if (ret < 0) {
+					purple_debug_error("gnutls/pkcs12",
+						"Failed importing crl from item %d in bag %d\n", i, idx);
+					gnutls_x509_crl_deinit (crl);
+					goto done;
+				}
+
+				purple_debug_info("gnutls/pkcs12",
+					"Found crl in item %d of bag %d\n", i, idx);
+				*crls = g_list_append(*crls, crl);
+				break;
+
+			case GNUTLS_BAG_ENCRYPTED:
+				/* XXX Bother to recurse one level down?  Unlikely to
+				   use the same password anyway. */
+		 	case GNUTLS_BAG_EMPTY:
+			default:
+				break;
+		 	}
 		}
 
-	      ret = gnutls_x509_crl_import (*crl, &data, GNUTLS_X509_FMT_DER);
-	      if (ret < 0)
-		{
-		  gnutls_assert ();
-		  gnutls_x509_crl_deinit (*crl);
-		  goto done;
-		}
-	      break;
+		idx++;
+		gnutls_pkcs12_bag_deinit (bag);
+	 }
 
-	    case GNUTLS_BAG_ENCRYPTED:
-	      /* XXX Bother to recurse one level down?  Unlikely to
-	         use the same password anyway. */
-	    case GNUTLS_BAG_EMPTY:
-	    default:
-	      break;
-	    }
-	}
-
-      idx++;
-      gnutls_pkcs12_bag_deinit (bag);
-    }
-
-  ret = 0;
+	ret = 0;
 
 done:
-  if (bag)
-    gnutls_pkcs12_bag_deinit (bag);
+	if (bag)
+		gnutls_pkcs12_bag_deinit (bag);
 
-  return ret;
+	return ret;
 }
 
 static gboolean
@@ -1993,6 +2035,46 @@ read_pkcs12_file(const gchar* filename, gnutls_datum_t *dt, gnutls_x509_crt_fmt_
 }
 
 
+static void
+add_to_purple_crt_list(gpointer data, gpointer user_data)
+{
+	gnutls_x509_crt_t crt = (gnutls_x509_crt_t)data;
+	GList **pcrts = (GList**)user_data;
+	x509_crtdata_t *crtdat;
+	PurpleCertificate *pcrt;
+
+	g_return_if_fail(NULL != data);
+
+	crtdat = g_new0(x509_crtdata_t, 1);
+	crtdat->crt = crt;
+	crtdat->refcount = 0;
+
+	pcrt = g_new0(PurpleCertificate, 1);
+	pcrt->scheme = &x509_gnutls;
+	pcrt->data = x509_crtdata_addref(crtdat);
+
+	*pcrts = g_list_append(*pcrts, pcrt);
+}
+
+static PurplePrivateKey*
+create_purple_privatekey_from_privkey(gnutls_x509_privkey_t key)
+{
+	x509_keydata_t *keydat;
+	PurplePrivateKey *pkey;
+
+	g_return_val_if_fail(NULL != key, NULL);
+
+	keydat = g_new0(x509_keydata_t, 1);
+	keydat->key = key;
+	keydat->refcount = 0;
+
+	pkey = g_new0(PurplePrivateKey, 1);
+	pkey->scheme = &x509_key_gnutls;
+	pkey->data = x509_keydata_addref(keydat);
+
+	return pkey;
+}
+
 /**
  * Derived from gnutls_certificate_set_x509_simple_pkcs12_mem in
  * gnutls_x509.c. Modified to return PurpleCertificate and PurplePrivateKey
@@ -2001,16 +2083,15 @@ read_pkcs12_file(const gchar* filename, gnutls_datum_t *dt, gnutls_x509_crt_fmt_
 static gboolean
 x509_import_pkcs12_from_file(const gchar* filename,
 			     const gchar* password,
-			     PurpleCertificate **crt,
-			     PurplePrivateKey **key)
+			     GList **pcrts, /* PurpleCertificate */
+			     PurplePrivateKey **pkey)
 {
 	gnutls_pkcs12_t p12;
-	gnutls_certificate_credentials_t res = NULL;
-	gnutls_x509_crl_t crl = NULL;
 	gnutls_datum_t dt;
 	gnutls_x509_crt_fmt_t fmt;
-	x509_crtdata_t *crtdat;
-	x509_keydata_t *keydat;
+	GList *crts = NULL;
+	GList *keys = NULL;
+	gnutls_x509_privkey_t key;
 
 	int rv;
 
@@ -2051,50 +2132,30 @@ x509_import_pkcs12_from_file(const gchar* filename,
 		}
  	}
 		
-	/* Allocate and prepare the internal key and crt data */
-	crtdat = g_new0(x509_crtdata_t, 1);
-	crtdat->crt = NULL;
-	crtdat->refcount = 0;
+	rv = parse_pkcs12(p12, password, &keys, &crts, NULL);
 
-	keydat = g_new0(x509_keydata_t, 1);
-	keydat->key = NULL;
-	keydat->refcount = 0;
-
-	rv = parse_pkcs12 (res, p12, password, &(keydat->key), &(crtdat->crt), &crl);
 	if (GNUTLS_E_SUCCESS != rv) {
 		purple_debug_error("gnutls/x509",
 			"parse_pkcs12 error: %s\n", gnutls_strerror(rv));
-		gnutls_x509_crt_deinit (crtdat->crt);
-		gnutls_x509_privkey_deinit(keydat->key);
-		gnutls_x509_crl_deinit (crl);
-		g_free(crtdat);
-		g_free(keydat);
 		return FALSE;
 	}
 
-	/* Just deinit since we aren't using and 
-	   want to avoid modifying parse_pkcs12() */
-	gnutls_x509_crl_deinit (crl);
+	purple_debug_info("gnutls/x509",
+		"Found %d keys and %d certs in pkcs12\n",
+		g_list_length(keys), g_list_length(crts));
 
-	if (NULL == keydat->key || NULL == crtdat->crt) {
+	if (g_list_length(keys) != 1) {
 		purple_debug_error("gnutls/x509",
-			"%s get a cert. %s get a key",
-			crtdat->crt ? "Did" : "Did not",
-			keydat->key ? "Did" : "Did not");
-		gnutls_x509_crt_deinit (crtdat->crt);
-		gnutls_x509_privkey_deinit(keydat->key);
-		g_free(crtdat);
-		g_free(keydat);
+			"Only support one private key in pkcs12 file. Found %d\n",
+			g_list_length(keys));
+		g_list_free_full(keys, (GDestroyNotify)gnutls_x509_privkey_deinit);
+		g_list_free_full(crts, (GDestroyNotify)gnutls_x509_crt_deinit);
 		return FALSE;
 	}
 
-	*crt = g_new0(PurpleCertificate, 1);
-	(*crt)->scheme = &x509_gnutls;
-	(*crt)->data = x509_crtdata_addref(crtdat);
-
-	*key = g_new0(PurplePrivateKey, 1);
-	(*key)->scheme = &x509_key_gnutls;
-	(*key)->data = x509_keydata_addref(keydat);
+	key = (gnutls_x509_privkey_t)(g_list_first(keys)->data);
+	*pkey = create_purple_privatekey_from_privkey(key);
+	g_list_foreach(crts, add_to_purple_crt_list, pcrts);
 
 	/* check if the key and certificate found match */
 #if 0 /* TODO ljf */
@@ -2111,53 +2172,56 @@ x509_import_pkcs12_from_file(const gchar* filename,
  */
 /* Derived from generate_pkcs12() in certtool.c in the gnutls source. */
 static gboolean
-x509_export_pkcs12_to_filename(const gchar* filename, const gchar* password, PurpleCertificate *purple_crt, PurplePrivateKey *purple_key)
+x509_export_pkcs12_to_filename(const gchar* filename, const gchar* password,
+			       GList *pcrts, PurplePrivateKey *pkey)
 {
 	gnutls_pkcs12_t pkcs12 = NULL;
-	gnutls_x509_crt_t crts[1];
+	gnutls_x509_crt_t crt = NULL;
 	gnutls_x509_privkey_t key = NULL;
 	int result;
 	size_t size;
 	gnutls_datum_t data;
 	const char *name;
-	unsigned int flags, i;
+	unsigned int flags;
 	gnutls_datum_t key_id;
 	unsigned char _key_id[20];
 	int indx;
-	size_t ncrts;
 	gboolean success = FALSE;
 	gnutls_pkcs12_bag_t kbag = NULL;
 	gnutls_pkcs12_bag_t bag = NULL;
 	char *key_buf = NULL;
 	char *out_buf = NULL;
-
-	crts[0] = X509_GET_GNUTLS_DATA(purple_crt);
-	key = X509_GET_GNUTLS_KEYDATA(purple_key);
-	ncrts = 1;
-
-	name = x509_common_name(purple_crt);
-	if (NULL == name) {
-		purple_debug_error("gnutls/pkcs12", "export: can't get common name for cert\n");
-		goto done;
-	}
+	GList *item = NULL;
 
 	result = gnutls_pkcs12_init (&pkcs12);
 	if (result < 0) {
-		purple_debug_error("gnutls/pkcs12", "export: pkcs12_init: %s\n", gnutls_strerror (result));
+		purple_debug_error("gnutls/pkcs12",
+			"export: pkcs12_init: %s\n", gnutls_strerror (result));
 		goto done;
 	}
 
-	for (i = 0; i < ncrts; i++)
-	{
-		result = gnutls_pkcs12_bag_init (&bag);
-		if (result < 0) {
-			purple_debug_error("gnutls/pkcs12", "export: bag_init: %s\n", gnutls_strerror (result));
+	result = gnutls_pkcs12_bag_init (&bag);
+	if (result < 0) {
+		purple_debug_error("gnutls/pkcs12",
+			"export: bag_init: %s\n", gnutls_strerror (result));
+		goto done;
+	}
+
+	for (item = g_list_first(pcrts); NULL != item; item = g_list_next(item)) {
+		PurpleCertificate *pcrt = (PurpleCertificate*)item->data;
+
+		crt = X509_GET_GNUTLS_DATA(pcrt);
+
+		name = x509_common_name(pcrt);
+		if (NULL == name) {
+			purple_debug_error("gnutls/pkcs12",
+				"export: can't get common name for cert\n");
 			goto done;
 		}
 
-		result = gnutls_pkcs12_bag_set_crt (bag, crts[i]);
+		result = gnutls_pkcs12_bag_set_crt (bag, crt);
 		if (result < 0) {
-			purple_debug_error ("gnutls/pkcs12", "export: set_crt[%d]: %s\n", i,
+			purple_debug_error ("gnutls/pkcs12", "export: set_crt: %s\n",
 				 gnutls_strerror (result));
 			goto done;
 		}
@@ -2172,9 +2236,9 @@ x509_export_pkcs12_to_filename(const gchar* filename, const gchar* password, Pur
 		}
 
 		size = sizeof (_key_id);
-		result = gnutls_x509_crt_get_key_id (crts[i], KEYID_FLAG, _key_id, &size);
+		result = gnutls_x509_crt_get_key_id (crt, KEYID_FLAG, _key_id, &size);
 		if (result < 0) {
-			purple_debug_error("gnutls/pkcs12", "key_id[%d]: %s\n", i,
+			purple_debug_error("gnutls/pkcs12", "key_id: %s\n", 
 				 gnutls_strerror(result));
 			goto done;
 		}
@@ -2188,31 +2252,35 @@ x509_export_pkcs12_to_filename(const gchar* filename, const gchar* password, Pur
 				 gnutls_strerror(result));
 			goto done;
 		}
-
-		flags = gnutls_get_default_crypt_flags();
-
-		result = gnutls_pkcs12_bag_encrypt (bag, password, flags);
-		if (result < 0) {
-			purple_debug_error("gnutls/pkcs12", "bag_encrypt: %s\n", gnutls_strerror (result));
-			goto done;
-		}
-
-		result = gnutls_pkcs12_set_bag (pkcs12, bag);
-		if (result < 0) {
-			purple_debug_error("gnutls/pkcs12", "set_bag: %s\n", gnutls_strerror (result));
-			goto done;
-		}
-
-		gnutls_pkcs12_bag_deinit(bag);
-		bag = NULL;
 	}
 
+#if 0
+	flags = gnutls_get_default_crypt_flags();
+	/* Should we be encrypting the certs?? Don't see why we should. */
+	result = gnutls_pkcs12_bag_encrypt (bag, password, flags);
+	if (result < 0) {
+		purple_debug_error("gnutls/pkcs12", "bag_encrypt: %s\n", gnutls_strerror (result));
+		goto done;
+	}
+#endif
+	result = gnutls_pkcs12_set_bag (pkcs12, bag);
+	if (result < 0) {
+		purple_debug_error("gnutls/pkcs12", "set_bag: %s\n", gnutls_strerror (result));
+		goto done;
+	}
+
+	gnutls_pkcs12_bag_deinit(bag);
+	bag = NULL;
+
+	/* XXX Assume one key */
 
 	result = gnutls_pkcs12_bag_init (&kbag);
 	if (result < 0) {
 		purple_debug_error("gnutls/pkcs12", "bag_init: %s\n", gnutls_strerror (result));
 		goto done;
 	}
+
+	key = X509_GET_GNUTLS_KEYDATA(pkey);
 
 	flags = gnutls_get_default_crypt_flags();
 	size = 0;
@@ -2226,6 +2294,7 @@ x509_export_pkcs12_to_filename(const gchar* filename, const gchar* password, Pur
 
 	purple_debug_info("gnutls/pkcs12", "Got pkcs8 export memory size = %zd\n", size);
 
+	size = 2 * size;
 	key_buf = g_new0(char, size);
 
 	result = gnutls_x509_privkey_export_pkcs8 (key, GNUTLS_X509_FMT_DER,
@@ -2238,15 +2307,21 @@ x509_export_pkcs12_to_filename(const gchar* filename, const gchar* password, Pur
 
 	data.data = (unsigned char*)key_buf;
 	data.size = size;
-	result =
-		gnutls_pkcs12_bag_set_data (kbag,
-				GNUTLS_BAG_PKCS8_ENCRYPTED_KEY, &data);
+	result = gnutls_pkcs12_bag_set_data (kbag,
+			GNUTLS_BAG_PKCS8_ENCRYPTED_KEY, &data);
 	if (result < 0) {
 		purple_debug_error("gnutls/pkcs12", "bag_set_data: %s\n", gnutls_strerror (result));
 		goto done;
 	}
 
 	indx = result;
+
+	name = x509_common_name((PurpleCertificate*)(g_list_first(pcrts)->data));
+	if (NULL == name) {
+		purple_debug_error("gnutls/pkcs12",
+			"export: can't get common name for key's cert\n");
+		goto done;
+	}
 
 	result = gnutls_pkcs12_bag_set_friendly_name (kbag, indx, name);
 	if (result < 0) {
@@ -2315,30 +2390,36 @@ done:
 
 static gboolean 
 pkcs12_import(const gchar *filename, const gchar *password,
-	      PurpleCertificate **crt, PurplePrivateKey **key)
+	      GList **crts, PurplePrivateKey **key)
 {
 	g_return_val_if_fail(filename, FALSE);
 	g_return_val_if_fail(password, FALSE);
-	g_return_val_if_fail(crt, FALSE);
+	g_return_val_if_fail(crts, FALSE);
 	g_return_val_if_fail(key, FALSE);
 
 
-	return x509_import_pkcs12_from_file(filename, password, crt, key);
+	return x509_import_pkcs12_from_file(filename, password, crts, key);
 }
 
 static gboolean 
 pkcs12_export(const gchar *filename, const gchar *password,
-	      PurpleCertificate *crt, PurplePrivateKey *key)
+	      GList *crts, PurplePrivateKey *key)
 {
+	GList *i = NULL;
+
 	g_return_val_if_fail(filename, FALSE);
 	g_return_val_if_fail(password, FALSE);
-	g_return_val_if_fail(crt, FALSE);
-	g_return_val_if_fail(key, FALSE);
 
+	g_return_val_if_fail(NULL != crts, FALSE);
+	g_return_val_if_fail(NULL != key, FALSE);
 	g_return_val_if_fail(key->scheme == &x509_key_gnutls, FALSE);
-	g_return_val_if_fail(crt->scheme == &x509_gnutls, FALSE);
 
-	return x509_export_pkcs12_to_filename(filename, password, crt, key);
+	for (i = g_list_first(crts); NULL != i; i = g_list_next(i)) {
+		PurpleCertificate *crt = (PurpleCertificate*)i->data;
+		g_return_val_if_fail(crt->scheme == &x509_gnutls, FALSE);
+	}
+
+	return x509_export_pkcs12_to_filename(filename, password, crts, key);
 }
 
 
@@ -2357,34 +2438,58 @@ static PurplePkcs12Scheme pkcs12_gnutls = {
  * Setting the Purple Certificate and Private Key for authentication  *
  **********************************************************************/
 
+/**
+ * This attempts to add all certs in pcrt's cert chain as the certs
+ * are available. It will look in all our cert pools for issuers and
+ * add them to the creds.
+ */
 static gboolean
 ssl_gnutls_set_client_auth(gnutls_certificate_client_credentials cred,
 		PurpleCertificate * pcrt, PurplePrivateKey * pkey)
 {
-	gnutls_x509_crt_t cert_list[1];
+	gnutls_x509_crt_t *cert_list;
 	int rv;
+	PurpleCertificatePool *user_pool = NULL;
+	GList *crts = NULL;
+	int numcrts = 0;
+	GList *item = NULL;
+	int idx = 0;
 
 	g_return_val_if_fail(pcrt, FALSE);
 	g_return_val_if_fail(pkey, FALSE);
 	g_return_val_if_fail(pcrt->scheme == &x509_gnutls, FALSE);
 	g_return_val_if_fail(pkey->scheme == &x509_key_gnutls, FALSE);
 
+	user_pool = purple_certificate_find_pool("x509", "user");
+	g_return_val_if_fail(user_pool, FALSE);
+
 	if (NULL != xcred) {
+#if 0
 		/* Set global state for creds to return when server 
 		 * requests a client certificate */
 		client_auth_certs[0] = X509_GET_GNUTLS_DATA(pcrt);
 		client_auth_key = X509_GET_GNUTLS_KEYDATA(pkey);
+#endif
 
-		cert_list[0] = X509_GET_GNUTLS_DATA(pcrt);
-#if 0
-		rv = gnutls_certificate_set_x509_key(cred, cert_list, 1, X509_GET_GNUTLS_KEYDATA(pkey));
+		crts = purple_certificate_build_chain(user_pool, pcrt, NULL);
+
+		numcrts = g_list_length(crts);
+		cert_list = g_new0(gnutls_x509_crt_t, numcrts);
+		for (idx=0, item=g_list_first(crts); NULL != item; item = g_list_next(item),idx+=1) {
+			cert_list[idx] = X509_GET_GNUTLS_DATA((PurpleCertificate*)(item->data));
+		}
+
+		purple_debug_info("gnutls/ssl", "Added %d crts and 1 key to creds\n", numcrts);
+
+		rv = gnutls_certificate_set_x509_key(cred, cert_list, numcrts, X509_GET_GNUTLS_KEYDATA(pkey));
 		if (GNUTLS_E_SUCCESS != rv) {
 			purple_debug_error("gnutls/ssl",
 					  "Failed to set add certs to credentials: %s\n",
 					  gnutls_strerror(rv));
+			g_free(cert_list);
 			return FALSE;
 		}
-#endif
+		g_free(cert_list);
 		return TRUE;
 	}
 

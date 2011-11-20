@@ -666,6 +666,51 @@ purple_certificate_pool_destroy_idlist(GList *idlist)
 	g_list_free(idlist);
 }
 
+GList*
+purple_certificate_build_chain(PurpleCertificatePool *pool, PurpleCertificate *crt, gboolean *complete)
+{
+	PurpleCertificate *issuer = NULL;
+	gchar *issuer_id = NULL;
+	gchar *crt_id = NULL;
+	GList *chain = NULL;
+
+	g_return_val_if_fail(NULL != pool, NULL);
+	g_return_val_if_fail(NULL != crt, NULL);
+
+	if (NULL != complete)
+		*complete = FALSE;
+
+	chain = g_list_append(chain, crt);
+
+	crt_id = purple_certificate_get_unique_id(crt);
+	for (;;) {
+		issuer_id = purple_certificate_get_issuer_unique_id(crt);
+		if (NULL != crt_id && NULL != issuer_id) {
+			if (0 == g_strcmp0(crt_id, issuer_id)) {
+				/* found the last cert */
+				if (NULL != complete)
+					*complete = TRUE;
+				break;
+			}
+			issuer = purple_certificate_pool_retrieve(pool, issuer_id);
+			if (NULL != issuer) {
+				purple_debug_info("cert", "add %s to cert chain\n", issuer_id);
+				chain = g_list_append(chain, issuer);
+				crt = issuer;
+				crt_id = issuer_id;
+			}
+			else {
+				purple_debug_info("cert",
+					"issuer %s not found\n", issuer_id);
+				break;
+			}
+		}
+		else
+			break;
+	}
+
+	return chain;
+}
 
 /****************************************************************************/
 /* Builtin Verifiers, Pools, etc.                                           */
@@ -1405,7 +1450,7 @@ x509_user_delete_cert(const gchar *id)
 
 	/* Is the id even in the pool? */
 	if (!x509_user_cert_in_pool(id)) {
-		purple_debug_warning("certificate/tls_peers",
+		purple_debug_warning("certificate/user",
 				     "Id %s wasn't in the pool\n",
 				     id);
 		return FALSE;
@@ -1414,7 +1459,7 @@ x509_user_delete_cert(const gchar *id)
 	/* OK, so work out the keypath and delete the thing */
 	keypath = purple_certificate_pool_mkpath(&x509_user, id);
 	if ( unlink(keypath) != 0 ) {
-		purple_debug_error("certificate/tls_peers",
+		purple_debug_error("certificate/user",
 				   "Unlink of %s failed!\n",
 				   keypath);
 		ret = FALSE;

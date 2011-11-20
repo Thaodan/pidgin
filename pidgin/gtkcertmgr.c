@@ -556,6 +556,7 @@ user_mgmt_data *um_dat = NULL;
 enum
 {
 	UM_NAME_COLUMN,
+	UM_ID_COLUMN,
 	UM_N_COLUMNS
 };
 
@@ -591,24 +592,29 @@ user_mgmt_repopulate_list(void)
 	g_return_if_fail(user_crts);
 	g_return_if_fail(user_keys);
 
-	/* Grab the loaded certificates */
-	idlist = purple_certificate_pool_get_idlist(user_crts);
+	/* Only show certs that have a corresponding private key. */
+	/* ids for the cert and key are the same */
+	idlist = purple_privatekey_pool_get_idlist(user_keys);
 
 	/* Populate the listview */
 	for (l = idlist; l; l = l->next) {
 		GtkTreeIter iter;
 
-		if ( ! purple_privatekey_pool_contains(user_keys, l->data)) {
-			purple_debug_warning("gtkcertmgr/user_mgmt",
-					     "User cert %s is missing it's private key.\n",
-					     (gchar*)l->data);
+		PurpleCertificate *crt;
+		crt = purple_certificate_pool_retrieve(user_crts, l->data);
+		if (NULL != crt) {
+			gchar *name = purple_certificate_get_subject_name(crt);
+			gtk_list_store_append(store, &iter);
+
+			gtk_list_store_set(GTK_LIST_STORE(store), &iter,
+					   UM_NAME_COLUMN, name,
+					   UM_ID_COLUMN, l->data,
+					   -1);
 		}
-
-		gtk_list_store_append(store, &iter);
-
-		gtk_list_store_set(GTK_LIST_STORE(store), &iter,
-				   UM_NAME_COLUMN, l->data,
-				   -1);
+		else {
+			purple_debug_error("gtkcertmgr/user_mgmt",
+				"Failed to find cert %s in pool\n", (gchar*)l->data);
+		}
 	}
 	purple_certificate_pool_destroy_idlist(idlist);
 }
@@ -648,7 +654,7 @@ user_mgmt_select_chg_cb(GtkTreeSelection *ignored, gpointer data)
  */
 
 typedef struct {
-	PurpleCertificate *crt;
+	GList *crts;
 	PurplePrivateKey *key;
 	char *name;
 } pkcs12_import_data;
@@ -656,7 +662,7 @@ typedef struct {
 static void
 pkcs12_import_data_free(pkcs12_import_data *data)
 {
-	purple_certificate_destroy(data->crt);
+	purple_certificate_destroy_list(data->crts);
 	purple_privatekey_destroy(data->key);
 	g_free(data->name);
 	g_free(data);
@@ -665,9 +671,17 @@ pkcs12_import_data_free(pkcs12_import_data *data)
 static void
 pkcs12_import_key_password_ok_cb(gboolean result, pkcs12_import_data *data)
 {
-	if (!purple_certificate_pool_store(um_dat->user_crts, data->name, data->crt)) {
-		purple_notify_error(um_dat, NULL, _("Failed to save imported certificate."), NULL);
-		/* TODO: deleted corresponding key stored in privatekey pool */
+	GList *i = NULL;
+	gchar *id = NULL;
+	PurpleCertificate *crt;
+
+	for(i = g_list_first(data->crts); NULL != i; i = g_list_next(i)) {
+		crt = (PurpleCertificate*)i->data;
+		id = purple_certificate_get_unique_id(crt);
+		if (!purple_certificate_pool_store(um_dat->user_crts, id, crt)) {
+			purple_notify_error(um_dat, NULL, _("Failed to save imported certificate."), NULL);
+			/* TODO: deleted corresponding key stored in privatekey pool */
+		}
 	}
 
 	pkcs12_import_data_free(data);
@@ -689,9 +703,10 @@ pkcs12_import_name_ok_cb(pkcs12_import_data *data, char* name)
 	purple_privatekey_pool_store_request(
 		um_dat->user_keys,
 		data->name,
+		data->name,
 		data->key,
-		pkcs12_import_key_password_ok_cb,
-		pkcs12_import_key_password_cancel_cb,
+		G_CALLBACK(pkcs12_import_key_password_ok_cb),
+		G_CALLBACK(pkcs12_import_key_password_cancel_cb),
 		data);
 }
 
@@ -706,7 +721,7 @@ user_mgmt_import_pkcs12(const gchar* filename, const gchar* password)
 {
 	PurpleCertificateScheme *x509_crts;
 	PurplePrivateKeyScheme *x509_keys;
-	PurpleCertificate *crt = NULL;
+	GList *crts = NULL;
 	PurplePrivateKey *key = NULL;
 	pkcs12_import_data *data;
 	gboolean result;
@@ -720,47 +735,35 @@ user_mgmt_import_pkcs12(const gchar* filename, const gchar* password)
 	g_return_if_fail(x509_keys);
 
 	/* Now load the certificate/keys from disk */
-	result = purple_pkcs12_import(um_dat->pkcs12, filename, password, &crt, &key);
+	result = purple_pkcs12_import(um_dat->pkcs12, filename, password, &crts, &key);
 
 	/* Did it work? */
 	if (result) {
-		gchar *default_name;
+		/* key id must be the same as the corresponding cert */
+		/* We will only add all the certs to the pool if the key add is ok */
+		PurpleCertificate *crt = (PurpleCertificate*)(g_list_first(crts)->data);
+		gchar *id = purple_certificate_get_unique_id(crt);
+		gchar *name = purple_certificate_get_subject_name(crt);
 
-		/* Get name to add to pool as */
-		/* Make a guess about what the hostname should be */
-		 default_name = purple_certificate_get_subject_name(crt);
-		/* TODO: Find a way to make sure that crt & key gets destroyed
-		   if the window gets closed unusually, such as by handle
-		   deletion */
-		/* TODO: Display some more information on the certificate? */
-		
 		data = g_new0(pkcs12_import_data, 1);
-		data->crt = crt;
+		data->crts = crts;
 		data->key = key;
-		data->name = default_name;	
 
-		/* TODO: Enable custom cert name dialog  */
-		purple_request_input(um_dat,
-				     _("PKCS12 Import"),
-				     _("Specify a name"),
-				     _("Type the name for the imported certificate and key."),
-				     default_name,
-				     FALSE, /* Not multiline */
-				     FALSE, /* Not masked? */
-				     NULL,  /* No hints? */
-				     _("OK"),
-				     G_CALLBACK(pkcs12_import_name_ok_cb),
-				     _("Cancel"),
-				     G_CALLBACK(pkcs12_import_name_cancel_cb),
-				     NULL, NULL, NULL, /* No account/who/conv*/
-				     data);
+		purple_privatekey_pool_store_request(
+			um_dat->user_keys,
+			name,
+			id,
+			key,
+			G_CALLBACK(pkcs12_import_key_password_ok_cb),
+			G_CALLBACK(pkcs12_import_key_password_cancel_cb),
+			data);
 	} else {
 		/* Errors! Oh no! */
 		/* TODO: Perhaps find a way to be specific about what just
 		   went wrong? */
 		gchar * secondary;
 
-		purple_certificate_destroy(crt);
+		purple_certificate_destroy_list(crts);
 		purple_privatekey_destroy(key);
 
 		secondary = g_strdup_printf(_("File %s could not be imported.\nMake sure that the file is readable, in PKCS12 format and you used the correct password.\n"), filename);
@@ -835,7 +838,7 @@ user_mgmt_import_cb(GtkWidget *button, gpointer data)
  */
 
 typedef struct {
-	PurpleCertificate *crt;
+	GList *crts;
 	PurplePrivateKey *key;
 	char* filename;
 	char* id;
@@ -846,7 +849,7 @@ pkcs12_export_data_free(pkcs12_export_data *data)
 {
 
 	g_return_if_fail(data);
-	purple_certificate_destroy(data->crt);
+	purple_certificate_destroy_list(data->crts);
 	purple_privatekey_destroy(data->key);
 	g_free(data->filename);
 	g_free(data->id);
@@ -879,7 +882,7 @@ pkcs12_export_password_ok_cb(pkcs12_export_data *data, PurpleRequestFields *fiel
 
 	/* Finally create the pkcs12 file */
 
-	if (!purple_pkcs12_export(um_dat->pkcs12, data->filename, entry, data->crt, data->key)) {
+	if (!purple_pkcs12_export(um_dat->pkcs12, data->filename, entry, data->crts, data->key)) {
 		/* Errors! Oh no! */
 		/* TODO: Perhaps find a way to be specific about what just
 		   went wrong? */
@@ -979,9 +982,9 @@ user_mgmt_export_cb(GtkWidget *button, void* stuff)
 	GtkTreeIter iter;
 	GtkTreeModel *model = NULL;
 	gchar *id = NULL;
+	gchar *name = NULL;
+	GList *chain = NULL;
 	pkcs12_export_data *data = NULL;
-
-	purple_debug_info("gtkcertmgr/user_mgmt", "1111111111111111\n");
 
 	/* See if things are selected */
 	if (!gtk_tree_selection_get_selected(select, &model, &iter)) {
@@ -991,7 +994,7 @@ user_mgmt_export_cb(GtkWidget *button, void* stuff)
 	}
 
 	/* Retrieve the selected name */
-	gtk_tree_model_get(model, &iter, UM_NAME_COLUMN, &id, -1);
+	gtk_tree_model_get(model, &iter, UM_ID_COLUMN, &id, -1);
 
 	/* Extract the certificate & keys from the pools now to make sure it doesn't
 	   get deleted out from under us */
@@ -999,23 +1002,30 @@ user_mgmt_export_cb(GtkWidget *button, void* stuff)
 
 	if (NULL == crt) {
 		purple_debug_error("gtkcertmgr/user_mgmt",
-	 				   "Id %s was not in the user cert pool?!\n",
-					   id);
+			"Id %s was not in the user cert pool?!\n", id);
 		g_free(id);
 		return;
 	}
 
+	chain = purple_certificate_build_chain(um_dat->user_crts, crt, NULL);
+
+	purple_debug_info("gtkcertmgr/user_mgmt",
+		"Got chain of %d certs\n", g_list_length(chain));
+
 	/* stuff we will need in our callbacks */
 	data = g_new0(pkcs12_export_data, 1);
-	data->crt = crt;
+	data->crts = chain;
 	data->id = id;
 
+	name = purple_certificate_get_subject_name(crt);
 	purple_privatekey_pool_retrieve_request(
 			um_dat->user_keys,
+			name,
 			id,
 			G_CALLBACK(pkcs12_get_key_password_ok_cb),
 			G_CALLBACK(pkcs12_get_key_password_cancel_cb),
 			data);
+	g_free(name);
 }
 
 /**********************************************************
@@ -1039,7 +1049,7 @@ user_mgmt_info_cb(GtkWidget *button, gpointer data)
 	}
 
 	/* Retrieve the selected name */
-	gtk_tree_model_get(model, &iter, UM_NAME_COLUMN, &id, -1);
+	gtk_tree_model_get(model, &iter, UM_ID_COLUMN, &id, -1);
 
 	/* Now retrieve the certificate */
 	crt = purple_certificate_pool_retrieve(um_dat->user_crts, id);
@@ -1091,7 +1101,9 @@ user_mgmt_delete_cb(GtkWidget *button, gpointer data)
 		gchar *primary;
 
 		/* Retrieve the selected hostname */
-		gtk_tree_model_get(model, &iter, UM_NAME_COLUMN, &id, -1);
+		gtk_tree_model_get(model, &iter, UM_ID_COLUMN, &id, -1);
+
+		/* TODO: What to do about issuer certs still there? */
 
 		/* Prompt to confirm deletion */
 		primary = g_strdup_printf(
@@ -1161,7 +1173,9 @@ user_mgmt_build(void)
 	gtk_widget_show(GTK_WIDGET(sw));
 
 	/* List view */
-	store = gtk_list_store_new(UM_N_COLUMNS, G_TYPE_STRING);
+	store = gtk_list_store_new(UM_N_COLUMNS,
+					G_TYPE_STRING,   /* Name */
+					G_TYPE_STRING);  /* Id */
 
 	um_dat->listview = listview =
 		GTK_TREE_VIEW(gtk_tree_view_new_with_model(GTK_TREE_MODEL(store)));
@@ -1182,6 +1196,13 @@ user_mgmt_build(void)
 
 		gtk_tree_sortable_set_sort_column_id(GTK_TREE_SORTABLE(store),
 				UM_NAME_COLUMN, GTK_SORT_ASCENDING);
+
+		column = gtk_tree_view_column_new_with_attributes(
+				_("Subject"),
+				renderer,
+				"text", UM_ID_COLUMN,
+				NULL);
+		gtk_tree_view_append_column(GTK_TREE_VIEW(listview), column);
 	}
 
 	/* Get the treeview selector into the struct */

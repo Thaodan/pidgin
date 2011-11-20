@@ -260,7 +260,8 @@ struct _PurpleCertificateScheme
 	 *
 	 * @param crt   Certificate instance
 	 * @return Newly allocated string that can be used to uniquely
-	 *         identify the certificate.
+	 *         identify the certificate. The character set must be
+	 *         valid as a filename, so ASCII is safest.
 	 */
 	gchar * (* get_unique_id)(PurpleCertificate *crt);
 
@@ -698,6 +699,19 @@ purple_certificate_get_times(PurpleCertificate *crt, time_t *activation, time_t 
 gboolean
 purple_certificate_compare_pubkeys(PurpleCertificate *crt1, PurpleCertificate *crt2);
 
+ * Helper to build the certificate chain. Assumes the given pool stores certificates
+ * using purple_certificate_get_unique_id() as the id.
+ *
+ * @param pool Pool to search for issuer certificates
+ * @param crt End user certificate. 
+ * @param complete TRUE if the complete certificate chain is returned.
+ * @returns The certificate chain. The first certificate will be crt followed by
+ *          its issuer's certificate, and so on until the root CA is found or
+ *          no more issuer's certificate can be found. The chain is NOT
+ *          guaranteed to be complete.
+ */
+GList*
+purple_certificate_build_chain(PurpleCertificatePool *pool, PurpleCertificate *crt, gboolean *complete);
 /*@}*/
 
 /*****************************************************************************/

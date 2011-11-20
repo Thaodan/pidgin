@@ -86,6 +86,7 @@ purple_ssl_is_supported(void)
 static void
 purple_ssl_destroy(PurpleSslConnection *gsc)
 {
+	purple_debug_info("sslconn", "Destroying PurpleSslConnection %p\n", gsc);
 	purple_certificate_destroy(gsc->certificate);
 	purple_privatekey_destroy(gsc->key);
 	g_free(gsc->host);
@@ -197,6 +198,7 @@ purple_ssl_get_credentials(PurpleAccount *account, PurpleSslConnection *gsc,
 	PurpleCertificatePool *crt_pool = NULL;
 	PurplePrivateKeyPool *key_pool = NULL;
 	ssl_connect_cb_data *data = NULL;
+	gchar *name = NULL;
 
 	g_return_val_if_fail(gsc, FALSE);
 	g_return_val_if_fail(gsc->certificate_id, FALSE);
@@ -231,10 +233,13 @@ purple_ssl_get_credentials(PurpleAccount *account, PurpleSslConnection *gsc,
 	data->gsc = gsc;
 	data->account = account;
 
-	purple_privatekey_pool_retrieve_request(key_pool, gsc->certificate_id,
+	name = purple_certificate_get_subject_name(gsc->certificate);
+	purple_privatekey_pool_retrieve_request(key_pool, name, gsc->certificate_id,
 		ok_cb,
 		G_CALLBACK(purple_ssl_connect_cancel_cb),
 		(void*)data);
+
+	g_free(name);
 
 	return TRUE;
 }
@@ -279,6 +284,7 @@ purple_ssl_connect_with_ssl_cn_auth(PurpleAccount *account, const char *host, in
 	}
 
 	gsc = g_new0(PurpleSslConnection, 1);
+	purple_debug_info("sslconn", "Creating new PurpleSslConnection %p\n", gsc);
 
 	gsc->fd              = -1;
 	gsc->host            = ssl_cn ? g_strdup(ssl_cn) : g_strdup(host);
@@ -424,6 +430,7 @@ purple_ssl_connect_with_host_fd_auth(PurpleAccount *account, int fd,
 	}
 
 	gsc = g_new0(PurpleSslConnection, 1);
+	purple_debug_info("sslconn", "Creating new PurpleSslConnection %p\n", gsc);
 
 	gsc->connect_cb_data = data;
 	gsc->connect_cb      = func;
