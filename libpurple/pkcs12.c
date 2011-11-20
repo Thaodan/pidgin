@@ -38,41 +38,73 @@
 static GList *pkcs12_schemes = NULL;
 
 gboolean
-purple_pkcs12_import(PurplePkcs12Scheme *scheme, const gchar *filename, const gchar *password,
-					 PurpleCertificate **crt, PurplePrivateKey **key)
+purple_pkcs12_import(PurplePkcs12Scheme *scheme,
+		     const gchar *filename, const gchar *password,
+		     GList **crts, PurplePrivateKey **key)
 {
 	g_return_val_if_fail(scheme, FALSE);
 	g_return_val_if_fail(filename, FALSE);
 	g_return_val_if_fail(password, FALSE);
-	g_return_val_if_fail(crt, FALSE);
+	g_return_val_if_fail(crts, FALSE);
 	g_return_val_if_fail(key, FALSE);
 
-	return (scheme->import_pkcs12)(filename, password, crt, key);
+	return (scheme->import_pkcs12)(filename, password, crts, key);
 }
 
 gboolean
-purple_pkcs12_export(PurplePkcs12Scheme *scheme, const gchar *filename, const gchar *password,
-					 PurpleCertificate *crt, PurplePrivateKey *key)
+purple_pkcs12_export(PurplePkcs12Scheme *scheme,
+		     const gchar *filename, const gchar *password,
+		     GList *crts, PurplePrivateKey *key)
 {
 	g_return_val_if_fail(scheme, FALSE);
 	g_return_val_if_fail(filename, FALSE);
 	g_return_val_if_fail(password, FALSE);
-	g_return_val_if_fail(crt, FALSE);
-	g_return_val_if_fail(key, FALSE);
 
-	return (scheme->export_pkcs12)(filename, password, crt, key);
+	return (scheme->export_pkcs12)(filename, password, crts, key);
 }
 
 gboolean
 purple_pkcs12_import_to_pool(PurplePkcs12Scheme *scheme, const gchar *filename, const gchar *password,
-							 PurpleCertificatePool *certpool, PurplePrivateKeyPool *keypool)
+							 PurpleCertificatePool *crtpool, PurplePrivateKeyPool *keypool)
 {
+	GList *crts;
+	PurplePrivateKey *key;
+	GList *i;
+	gchar *id;
+
 	g_return_val_if_fail(scheme, FALSE);
 	g_return_val_if_fail(filename, FALSE);
 	g_return_val_if_fail(password, FALSE);
-	g_return_val_if_fail(certpool, FALSE);
+	g_return_val_if_fail(crtpool, FALSE);
 	g_return_val_if_fail(keypool, FALSE);
 
+
+	if (!purple_pkcs12_import(scheme, filename, password, &crts, &key))
+		return FALSE;
+
+	for (i = g_list_first(crts); NULL != g_list_next(i); i = g_list_next(i)) {
+		PurpleCertificate *crt = (PurpleCertificate*)i->data;
+
+		id = purple_certificate_get_unique_id(crt);
+		if (NULL == id)
+			goto error;
+
+		if (!purple_certificate_pool_store(crtpool, id, crt))
+			goto error;
+	}
+
+	id = purple_privatekey_get_unique_id(key);
+	if (NULL == id)
+		goto error;
+
+	if (!purple_privatekey_pool_store(keypool, id, key, password))
+		goto error;
+
+	return TRUE;
+
+error:
+	purple_certificate_destroy_list(crts);
+	purple_privatekey_destroy(key);
 	return FALSE;
 }
 

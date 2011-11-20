@@ -67,28 +67,32 @@ struct _PurplePkcs12Scheme
 	gchar * fullname;
 
 	/**
-	* Imports PurpleCertificates and PurplePrivateKeys from a PKCS12 file
-	*
-	* @param filename    File path to import from
-	* @param password    Password protecting the PKCS12 file
-	* @param crt         Certificate in the PKCS12 file. Must be free'd by caller.
-	* @param key         Private key in the PKCS12 file. Must be free'd by caller.
-	* @return TRUE if at least one certificate and key were imported, and FALSE on failure
-	*/
+	 * Imports PurpleCertificates and PurplePrivateKeys from a PKCS12 file
+	 *
+	 * @param filename    File path to import from
+	 * @param password    Password protecting the PKCS12 file
+	 * @param crts        List of ptrs to PurpleCertificates from the PKCS12 file.
+	 *                    Must be free'd by caller.
+	 * @param key         PurplePrivateKey from the PKCS12 file.
+	 *                    Must be free'd by caller.
+	 *                    We only support one private key per PKCS12 file since we
+	 *                    are otherwise unable to match the key with its certificate.
+	 * @return TRUE if at least one certificate and key were imported, and FALSE on failure
+	 */
 	gboolean (*import_pkcs12)(const gchar *filename, const gchar *password,
-				  PurpleCertificate **crt, PurplePrivateKey **key);
+				  GList **crts, PurplePrivateKey **key);
 
 	/**
-	* Exports PurpleCertificates and PurplePrivateKey to a file
-	*
-	* @param filename    File to export the key to
-	* @param password    Password to protect the PKCS12 file
-	* @param crt         Certificate to export
-	* @param key         Key to export
-	* @return TRUE if the export succeeded, otherwise FALSE
-	*/
+	 * Exports PurpleCertificates and PurplePrivateKey to a file
+	 *
+	 * @param filename    File to export the key to
+	 * @param password    Password to protect the PKCS12 file
+	 * @param crts        List of ptrs to PurpleCertificates to export
+	 * @param key         PurplePrivateKey to export
+	 * @return TRUE if the export succeeded, otherwise FALSE
+	 */
 	gboolean (*export_pkcs12)(const gchar *filename, const gchar *password,
-				  PurpleCertificate *crt, PurplePrivateKey *key);
+				  GList *crts, PurplePrivateKey *key);
 
 	void (*_purple_reserved1)(void);
 	void (*_purple_reserved2)(void);
@@ -108,26 +112,35 @@ struct _PurplePkcs12Scheme
  * @param scheme      Scheme to import under
  * @param filename    File path to import from
  * @param password    Password protecting the PKCS12 file
- * @param crt         Certificate in the PKCS12 file. Must be free'd by caller.
- * @param key         Private key in the PKCS12 file. Must be free'd by caller.
+ * @param crts        Certificate chain from the PKCS12 file in the form of a list
+ *                    of ptrs to PurpleCertificates. The chain must be in order.
+ *                    The first certificate must be the certificate corresponding to
+ *                    key. Each certificate should be followed by the issuer's
+ *                    certificate and end at the root CA certificate. The whole chain
+ *                    need not be present.
+ *                    Must be free'd by caller.
+ * @param key         PurplePrivateKey from the PKCS12 file.
+ *                    Must be free'd by caller.
+ *                    We only support one private key per PKCS12 file since we are
+ *                    otherwise unable to match up the key with its certificate.
  * @return TRUE if at least one certificate and key were imported, and FALSE on failure
  */
 gboolean
 purple_pkcs12_import(PurplePkcs12Scheme *scheme, const gchar *filename, const gchar *password,
-					 PurpleCertificate **crt, PurplePrivateKey **key);
+		     GList **crts, PurplePrivateKey **key);
 
 /**
  * Exports PurpleCertificates and PurplePrivateKey to a file
  *
  * @param filename    File to export the key to
  * @param password    Password to protect the PKCS12 file
- * @param crt         Certificate to export
- * @param key         Key to export
+ * @param crts        List of ptrs to PurpleCertificates to export
+ * @param key         PurplePrivateKey to export
  * @return TRUE if the export succeeded, otherwise FALSE
  */
 gboolean
 purple_pkcs12_export(PurplePkcs12Scheme *scheme, const gchar *filename, const gchar *password,
-					 PurpleCertificate *crt, PurplePrivateKey *key);
+		     GList *crts, PurplePrivateKey *key);
 
 /**
  * Imports certificates and key into given certificate and private key pools.
@@ -141,7 +154,7 @@ purple_pkcs12_export(PurplePkcs12Scheme *scheme, const gchar *filename, const gc
  */
 gboolean
 purple_pkcs12_import_to_pool(PurplePkcs12Scheme *scheme, const gchar *filename, const gchar *password,
-							 PurpleCertificatePool *certpool, PurplePrivateKeyPool *keypool);
+							 PurpleCertificatePool *crtpool, PurplePrivateKeyPool *keypool);
 
 /**
  * Request the password used to encrypt the pkcs12 file.

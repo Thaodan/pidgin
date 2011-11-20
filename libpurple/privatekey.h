@@ -196,7 +196,8 @@ struct _PurplePrivateKeyScheme
 	 *
 	 * @param key PrivateKey instance
 	 * @return Newly allocated string that can be used to uniquely
-	 *         identify the key.
+	 *         identify the key. The chacter set must be valid in
+	 *         a filename so ASCII is safest.
 	 */
 	gchar* (* get_unique_id)(PurplePrivateKey *key);
 
@@ -326,6 +327,7 @@ typedef void (*PurplePrivateKeyPoolStoreRequestOkCb)(gboolean result, void* data
  * Retrieve a key from a pool and prompt user for the password protecting the key.
  *
  * @param pool      Pool to get key from
+ * @param friendly_name Name of key to show in request message.
  * @param id        ID of key to retrieve
  * @param ok_cb     Called if the user clicks ok in the password prompt.
  *                  The key parameter to the callback is non-null if the key was successfully
@@ -335,7 +337,8 @@ typedef void (*PurplePrivateKeyPoolStoreRequestOkCb)(gboolean result, void* data
  */
 void 
 purple_privatekey_pool_retrieve_request(
-	PurplePrivateKeyPool *pool, const gchar *id,
+	PurplePrivateKeyPool *pool,
+	const gchar *friendly_name, const gchar *id,
 	GCallback ok_cb,
 	GCallback cancel_cb,
 	void* user_data);
@@ -344,6 +347,7 @@ purple_privatekey_pool_retrieve_request(
  * Store a key in the given pool and prompt user for a password to protect the key.
  *
  * @param pool      Pool to store key in
+ * @param friendly_name Name of key to show in request message.
  * @param id        ID of key to store
  * @param key       Key to store.
  * @param ok_cb     Called if the user clicks ok in the password prompt.
@@ -354,7 +358,9 @@ purple_privatekey_pool_retrieve_request(
  */
 void 
 purple_privatekey_pool_store_request(
-	PurplePrivateKeyPool *pool, const gchar *id, PurplePrivateKey *key,
+	PurplePrivateKeyPool *pool,
+	const gchar* friendly_name, const gchar *id,
+	PurplePrivateKey *key,
 	GCallback ok_cb,
 	GCallback cancel_cb,
 	void* user_data);
