@@ -3011,6 +3011,16 @@ gboolean pidgin_auto_parent_window(GtkWidget *widget)
 	}
 	if (windows)
 		g_list_free(windows);
+
+	/* Ensure that the parent is not a dialog. Those have a tendency to disappear.
+	 * When dialogs are chained--dialog A's callback opens dialog B--dialog B
+	 * would end up with impropper focus if dialog A was choosen as the parent,
+	 * because dialog A would go away before dialog B was displayed. That is
+	 * the theory at least. This should fix that.
+	 */
+	while (parent && GTK_IS_DIALOG(parent))
+		parent = parent->parent;
+
 	if (parent) {
 		gtk_window_set_transient_for(GTK_WINDOW(widget), GTK_WINDOW(parent));
 		return TRUE;
