@@ -998,16 +998,13 @@ user_mgmt_export_cb(GtkWidget *button, void* stuff)
 
 	/* Extract the certificate & keys from the pools now to make sure it doesn't
 	   get deleted out from under us */
-	crt = purple_certificate_pool_retrieve(um_dat->user_crts, id);
-
-	if (NULL == crt) {
+	chain = purple_certificate_pool_retrieve_chain(um_dat->user_crts, id, NULL);
+	if (NULL == chain) {
 		purple_debug_error("gtkcertmgr/user_mgmt",
 			"Id %s was not in the user cert pool?!\n", id);
 		g_free(id);
 		return;
 	}
-
-	chain = purple_certificate_pool_retrieve_chain(um_dat->user_crts, crt, NULL);
 
 	purple_debug_info("gtkcertmgr/user_mgmt",
 		"Got chain of %d certs\n", g_list_length(chain));
@@ -1017,6 +1014,7 @@ user_mgmt_export_cb(GtkWidget *button, void* stuff)
 	data->crts = chain;
 	data->id = id;
 
+	crt = (PurpleCertificate*)(g_list_first(chain)->data);
 	name = purple_certificate_get_subject_name(crt);
 	purple_privatekey_pool_retrieve_request(
 			um_dat->user_keys,
