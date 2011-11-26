@@ -675,13 +675,13 @@ pkcs12_import_key_password_ok_cb(gboolean result, pkcs12_import_data *data)
 	gchar *id = NULL;
 	PurpleCertificate *crt;
 
-	for(i = g_list_first(data->crts); NULL != i; i = g_list_next(i)) {
-		crt = (PurpleCertificate*)i->data;
-		id = purple_certificate_get_unique_id(crt);
-		if (!purple_certificate_pool_store(um_dat->user_crts, id, crt)) {
-			purple_notify_error(um_dat, NULL, _("Failed to save imported certificate."), NULL);
-			/* TODO: deleted corresponding key stored in privatekey pool */
-		}
+	i = g_list_first(data->crts);
+	crt = (PurpleCertificate*)i->data;
+	id = purple_certificate_get_unique_id(crt);
+
+	if (!purple_certificate_pool_store_chain(um_dat->user_crts, id, data->crts)) {
+		purple_notify_error(um_dat, NULL, _("Failed to save imported certificates."), NULL);
+		purple_privatekey_pool_delete(um_dat->user_keys, id);
 	}
 
 	pkcs12_import_data_free(data);
@@ -1007,7 +1007,7 @@ user_mgmt_export_cb(GtkWidget *button, void* stuff)
 		return;
 	}
 
-	chain = purple_certificate_build_chain(um_dat->user_crts, crt, NULL);
+	chain = purple_certificate_pool_retrieve_chain(um_dat->user_crts, crt, NULL);
 
 	purple_debug_info("gtkcertmgr/user_mgmt",
 		"Got chain of %d certs\n", g_list_length(chain));
@@ -1370,7 +1370,6 @@ pidgin_certmgr_show(void)
 				     TRUE); /* Allow resizing */
 	g_signal_connect(G_OBJECT(win), "delete_event",
 			 G_CALLBACK(certmgr_close_cb), dlg);
-
 
 	/* TODO: Retrieve the user-set window size and use it */
 	gtk_window_set_default_size(GTK_WINDOW(win), 400, 400);

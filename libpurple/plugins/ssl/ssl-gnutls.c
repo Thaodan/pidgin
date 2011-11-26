@@ -2453,6 +2453,7 @@ ssl_gnutls_set_client_auth(gnutls_certificate_client_credentials cred,
 	GList *crts = NULL;
 	int numcrts = 0;
 	GList *item = NULL;
+	gchar *id = NULL;
 	int idx = 0;
 
 	g_return_val_if_fail(pcrt, FALSE);
@@ -2471,7 +2472,12 @@ ssl_gnutls_set_client_auth(gnutls_certificate_client_credentials cred,
 		client_auth_key = X509_GET_GNUTLS_KEYDATA(pkey);
 #endif
 
-		crts = purple_certificate_build_chain(user_pool, pcrt, NULL);
+		id = purple_certificate_get_unique_id(pcrt);
+		crts = purple_certificate_pool_retrieve_chain(user_pool, id, NULL);
+		if (NULL == crts) {
+			purple_debug_error("gnutls/ssl", "Failed to get cert chain %s for auth\n", id);
+			return FALSE;
+		}
 
 		numcrts = g_list_length(crts);
 		cert_list = g_new0(gnutls_x509_crt_t, numcrts);

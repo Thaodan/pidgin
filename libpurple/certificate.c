@@ -628,12 +628,24 @@ gboolean
 purple_certificate_pool_delete(PurpleCertificatePool *pool, const gchar *id)
 {
 	gboolean ret = FALSE;
+	int issuer_idx = 1;
+	gchar *issuer_id = NULL;
 
 	g_return_val_if_fail(pool, FALSE);
 	g_return_val_if_fail(id, FALSE);
 	g_return_val_if_fail(pool->delete_cert, FALSE);
 
 	ret = (pool->delete_cert)(id);
+
+	/* delete certs from a possible cert chain */
+	issuer_id = g_strdup_printf("%s.%d", id, issuer_idx);
+	while ((pool->cert_in_pool)(issuer_id)) { 
+		(pool->delete_cert)(issuer_id);
+		/* No error if this fails since we don't know how many certs in chain */
+		g_free(issuer_id);
+		issuer_idx += 1;
+		issuer_id = g_strdup_printf("%s.%d", id, issuer_idx);
+	}
 
 	/* Signal that the certificate was deleted if success */
 	if (ret) {
@@ -666,48 +678,132 @@ purple_certificate_pool_destroy_idlist(GList *idlist)
 	g_list_free(idlist);
 }
 
-GList*
-purple_certificate_build_chain(PurpleCertificatePool *pool, PurpleCertificate *crt, gboolean *complete)
+static gboolean
+is_valid_crt_chain(GList *crts)
 {
+	PurpleCertificate *crt = NULL;
+	PurpleCertificate *last_crt = NULL;
+	GList *item = NULL;
+	gchar *unique_id = NULL;
+	gchar *issuer_unique_id = NULL;
+	gboolean good = TRUE;
+
+
+	/* Check if certs are in the correct order */
+	item = g_list_first(crts);
+	last_crt = (PurpleCertificate*)item->data;
+	g_return_val_if_fail(NULL != last_crt, FALSE);
+	item = g_list_next(item);
+	while (NULL != item && good) {
+		crt = (PurpleCertificate*)item->data;
+		g_return_val_if_fail(NULL != crt, FALSE);
+
+		unique_id = purple_certificate_get_unique_id(crt);
+		issuer_unique_id = purple_certificate_get_issuer_unique_id(last_crt);
+
+		if (0 != g_strcmp0(unique_id, issuer_unique_id)) {
+			purple_debug_error("certificate", "Broken certificate chain: %s %s\n",
+				unique_id, issuer_unique_id);
+			good = FALSE;
+		}
+
+		g_free(unique_id);
+		g_free(issuer_unique_id);
+		last_crt = crt;
+		item = g_list_next(item);
+	}
+
+	return good;
+}
+
+gboolean
+purple_certificate_pool_store_chain(PurpleCertificatePool *pool, const gchar *id, GList *crts)
+{
+	PurpleCertificate *crt = NULL;
+	int issuer_idx = 1;
+	GList *item = NULL;
+	gchar *newid = NULL;
+
+	g_return_val_if_fail(NULL != pool, FALSE);
+	g_return_val_if_fail(NULL != id, FALSE);
+	g_return_val_if_fail(NULL != crts, FALSE);
+	g_return_val_if_fail(is_valid_crt_chain(crts), FALSE);
+
+	item = g_list_first(crts);
+	crt = (PurpleCertificate*)item->data;
+	g_return_val_if_fail(NULL != crt, FALSE);
+
+	if (!purple_certificate_pool_store(pool, id, crt)) {
+		return FALSE;
+	}
+
+	item = g_list_next(item);
+	while (NULL != item) {
+		crt = (PurpleCertificate*)item->data;
+		g_return_val_if_fail(NULL != crt, FALSE);
+
+		newid = g_strdup_printf("%s.%d", id, issuer_idx);
+		if (!purple_certificate_pool_store(pool, newid, crt)) {
+			purple_debug_error("certificate",
+				"Failed to store chain cert using id %s\n", newid);
+			g_free(newid);
+			/* TODO: delete any certs we added before error */
+			return FALSE;
+		}
+
+		issuer_idx += 1;
+		g_free(newid);
+		item = g_list_next(item);
+	}
+
+	return TRUE;	
+}
+
+GList*
+purple_certificate_pool_retrieve_chain(PurpleCertificatePool *pool, const gchar *id, gboolean *complete)
+{
+	PurpleCertificate *crt = NULL;
 	PurpleCertificate *issuer = NULL;
-	gchar *issuer_id = NULL;
-	gchar *crt_id = NULL;
 	GList *chain = NULL;
+	int issuer_idx = 1;
+	gboolean found_self_signed = FALSE;
 
 	g_return_val_if_fail(NULL != pool, NULL);
-	g_return_val_if_fail(NULL != crt, NULL);
+	g_return_val_if_fail(NULL != id, NULL);
 
 	if (NULL != complete)
 		*complete = FALSE;
 
+	crt = purple_certificate_pool_retrieve(pool, id);
+	if (NULL == crt)
+		return NULL;
+
 	chain = g_list_append(chain, crt);
 
-	crt_id = purple_certificate_get_unique_id(crt);
-	for (;;) {
-		issuer_id = purple_certificate_get_issuer_unique_id(crt);
-		if (NULL != crt_id && NULL != issuer_id) {
-			if (0 == g_strcmp0(crt_id, issuer_id)) {
-				/* found the last cert */
-				if (NULL != complete)
-					*complete = TRUE;
-				break;
-			}
-			issuer = purple_certificate_pool_retrieve(pool, issuer_id);
-			if (NULL != issuer) {
-				purple_debug_info("cert", "add %s to cert chain\n", issuer_id);
-				chain = g_list_append(chain, issuer);
-				crt = issuer;
-				crt_id = issuer_id;
-			}
-			else {
-				purple_debug_info("cert",
-					"issuer %s not found\n", issuer_id);
-				break;
+	issuer_idx = 1;
+	do {
+		gchar *issuer_id = NULL;
+		gchar *crt_unique_id = NULL;
+		gchar *issuer_unique_id = NULL;
+
+		issuer_id = g_strdup_printf("%s.%d", id, issuer_idx);
+		issuer = purple_certificate_pool_retrieve(pool, issuer_id);
+		if (NULL != issuer) {
+			chain = g_list_append(chain, issuer);
+			crt_unique_id = purple_certificate_get_unique_id(crt);
+			issuer_unique_id = purple_certificate_get_issuer_unique_id(crt);
+			if (0 == g_strcmp0(crt_unique_id, issuer_unique_id)) {
+				found_self_signed = TRUE;
 			}
 		}
-		else
-			break;
-	}
+		issuer_idx += 1;
+		g_free(issuer_id);
+		g_free(crt_unique_id);
+		g_free(issuer_unique_id);
+	} while (NULL != issuer && !found_self_signed);
+
+	if (NULL != complete)
+		*complete = found_self_signed;
 
 	return chain;
 }
