@@ -2,7 +2,64 @@
  * @file privatekey.h Private-Key API
  * @ingroup core
  * @see @ref privatekey-signals
- * @since 2.2.0
+ * @since 3.0.0
+ *
+ * Purple abstraction for private keys used for cryptographic authentication.
+ * E.g., SSL/TLS client authentication. PurplePrivateKey serves as the counterpart
+ * for PurpleCertificate for storing the secret key associated with a certificate.
+ *
+ *
+ * For PurplePrivateKey Users:
+ *
+ * PurplePrivateKey provides an interface analogous to PurpleCertificate. It includes
+ * functions for loading and storing keys to a file and getting information about a
+ * key. A pool for managing multiple keys, PurplePrivateKeyPool, analogous to 
+ * PurpleCertificatePool is also available.
+ *
+ * Where PurplePrivateKey differs significantly is in the need to get passwords
+ * from the user in order to encrypt and decrypt keys when they are stored on
+ * disk. The PurplePrivateKey and PurplePrivateKeyPool functions to store and retrive
+ * keys on disk take a
+ * password as an agrument which will be used by the underlying implementation
+ * to encrypt the keys.
+ *
+ * To facilitate getting a password from the use for protecting keys 
+ * PurplePrivateKeyPool includes additional functions for key store and retrieve
+ * requests. These functions will prompt the user for a password for the key
+ * using the registered ui_ops functions.
+ *
+ * So all users of libpurple can share private keys and associated certificates
+ * following the convention of using the same pool id for the private key
+ * as for the associated certificate. That is, if I look up id "myidentifier"
+ * in a PurpleCertificatePool and in PurplePrivateKeyPool I should get a certificate
+ * and its private key, respectively. 
+ *
+ * Currently, the User pools use the certificates distinguished name as returned
+ * by purple_certificate_get_unique_id(). 
+ *
+ *
+ * For PurplePrivateKey Implementers:
+ *
+ * Implementers of PurplePrivateKey must take steps to protect keys. This includes:
+ * <ol>
+ * <li>
+ * Storing keys encrypted on disk using a well-known, standard, tested format,
+ * such as PKCS8 or PKCS12, that uses a password to encrypt the keys.
+ * </li>
+ * <li>
+ * Keys should not be swapped out to disk. This usually means they must be stored in
+ * non-paged (or locked) memory pages.
+ * </li>
+ * <li>
+ * As soon as keys are no longer needed immediately for processes the memory containing
+ * they keys should be zeroed and free-ed.
+ * </li>
+ * </ol>
+ *
+ * While passwords are currently used to protect keys other mechanisms should be
+ * entertained. This could include common desktop key storage (e.g. gnome keyring,
+ * kdewallet) or PKCS11 for compatibility with hardware keystores (smartcards, 
+ * usb crypto keys, etc.).
  */
 
 /*
