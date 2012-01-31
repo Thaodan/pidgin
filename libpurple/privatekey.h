@@ -48,7 +48,9 @@
  * </li>
  * <li>
  * Keys should not be swapped out to disk. This usually means they must be stored in
- * non-paged (or locked) memory pages.
+ * non-paged (or locked) memory pages. This is hard to do. libgcrypt used by gnutls
+ * includes secure alloc functions but are not used by default by gnutls. We cannot
+ * enable them ourselves because of how gnutls initializes libgcrypt. :(
  * </li>
  * <li>
  * As soon as keys are no longer needed immediately for processes the memory containing
