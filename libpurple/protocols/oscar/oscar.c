@@ -3481,13 +3481,11 @@ oscar_set_info(PurpleConnection *gc, const char *rawinfo)
 static guint32
 oscar_get_extended_status(PurpleConnection *gc)
 {
-	OscarData *od;
 	PurpleAccount *account;
 	PurpleStatus *status;
 	const gchar *status_id;
 	guint32 data = 0x00000000;
 
-	od = purple_connection_get_protocol_data(gc);
 	account = purple_connection_get_account(gc);
 	status = purple_account_get_active_status(account);
 	status_id = purple_status_get_id(status);
@@ -4035,9 +4033,9 @@ static int purple_ssi_parselist(OscarData *od, FlapConnection *conn, FlapFrame *
 					gname = groupitem ? groupitem->name : NULL;
 					gname_utf8 = oscar_utf8_try_convert(account, od, gname);
 
-					g = purple_find_group(gname_utf8 ? gname_utf8 : _("Orphans"));
+					g = purple_find_group(gname_utf8 ? gname_utf8 : _("Buddies"));
 					if (g == NULL) {
-						g = purple_group_new(gname_utf8 ? gname_utf8 : _("Orphans"));
+						g = purple_group_new(gname_utf8 ? gname_utf8 : _("Buddies"));
 						purple_blist_add_group(g, NULL);
 					}
 
@@ -4261,13 +4259,13 @@ purple_ssi_parseaddmod(OscarData *od, FlapConnection *conn, FlapFrame *fr, ...)
 		 */
 		b = purple_buddy_new(account, name, alias_utf8);
 
-		if (!(g = purple_find_group(gname_utf8 ? gname_utf8 : _("Orphans")))) {
-			g = purple_group_new(gname_utf8 ? gname_utf8 : _("Orphans"));
+		if (!(g = purple_find_group(gname_utf8 ? gname_utf8 : _("Buddies")))) {
+			g = purple_group_new(gname_utf8 ? gname_utf8 : _("Buddies"));
 			purple_blist_add_group(g, NULL);
 		}
 
 		purple_debug_info("oscar",
-				   "ssi: adding buddy %s to group %s to local list\n", name, gname_utf8 ? gname_utf8 : _("Orphans"));
+				   "ssi: adding buddy %s to group %s to local list\n", name, gname_utf8 ? gname_utf8 : _("Buddies"));
 		purple_blist_add_buddy(b, NULL, g, NULL);
 
 		/* Mobile users should always be online */
@@ -4619,7 +4617,6 @@ const char *oscar_list_emblem(PurpleBuddy *b)
 	PurpleAccount *account = NULL;
 	PurplePresence *presence;
 	PurpleStatus *status;
-	const char *status_id;
 	aim_userinfo_t *userinfo = NULL;
 	const char *name;
 
@@ -4634,7 +4631,6 @@ const char *oscar_list_emblem(PurpleBuddy *b)
 
 	presence = purple_buddy_get_presence(b);
 	status = purple_presence_get_active_status(presence);
-	status_id = purple_status_get_id(status);
 
 	if (purple_presence_is_online(presence) == FALSE) {
 		char *gname;
@@ -4693,7 +4689,6 @@ char *oscar_status_text(PurpleBuddy *b)
 	OscarData *od;
 	const PurplePresence *presence;
 	const PurpleStatus *status;
-	const char *id;
 	const char *message;
 	gchar *ret = NULL;
 
@@ -4702,7 +4697,6 @@ char *oscar_status_text(PurpleBuddy *b)
 	od = purple_connection_get_protocol_data(gc);
 	presence = purple_buddy_get_presence(b);
 	status = purple_presence_get_active_status(presence);
-	id = purple_status_get_id(status);
 
 	if ((od != NULL) && !purple_presence_is_online(presence))
 	{
