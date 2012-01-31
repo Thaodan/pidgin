@@ -318,12 +318,15 @@ GList* jabber_get_account_options()
 				kvp->key = purple_certificate_get_subject_name(cert);
 				kvp->value = g_strdup(id);
 				certificates = g_list_append(certificates, kvp);
+				purple_certificate_destroy(cert);
 				purple_debug_info("xmpp/accountopt", "added cert %s to acct opt list\n", id);
 			}
 			else {
 				purple_debug_warning("xmpp/accountopt", "Failed to find cert for id %s\n", id);
 			}
 		}
+		g_list_sort(certificates, g_strcmp0);
+		ADD_VALUE(certificates, _("None"), "");
 		purple_privatekey_pool_destroy_idlist(id_list);
 	}
 
