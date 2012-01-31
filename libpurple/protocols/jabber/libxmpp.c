@@ -293,7 +293,6 @@ GList* jabber_get_account_options()
 	options = g_list_append(options, option);
 
 	
-	ADD_VALUE(certificates, _(""), "");
 	cert_pool = purple_certificate_find_pool("x509", "user");
 	key_pool = purple_privatekey_find_pool("x509", "user");
 	if (cert_pool && key_pool) {
@@ -311,12 +310,15 @@ GList* jabber_get_account_options()
 				kvp->key = purple_certificate_get_subject_name(cert);
 				kvp->value = g_strdup(id);
 				certificates = g_list_append(certificates, kvp);
+				purple_certificate_destroy(cert);
 				purple_debug_info("xmpp/accountopt", "added cert %s to acct opt list\n", id);
 			}
 			else {
 				purple_debug_warning("xmpp/accountopt", "Failed to find cert for id %s\n", id);
 			}
 		}
+		g_list_sort(certificates, g_strcmp0);
+		ADD_VALUE(certificates, _("None"), "");
 		purple_privatekey_pool_destroy_idlist(id_list);
 	}
 
