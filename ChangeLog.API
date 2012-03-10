@@ -201,8 +201,8 @@ version 3.0.0 (??/??/????):
 		* purple_txt_cancel
 		* purple_txt_resolve_account
 		* purple_util_fetch_url_len. Use purple_util_fetch_url, instead.
-		* purple_util_fetch_url_request_len. Use purple_util_fetch_url_request,
-		  instead.
+		* purple_util_fetch_url_request_len. Use
+		* purple_util_fetch_url_request, instead.
 		* purple_util_fetch_url_request_len_with_account.  Use
 		  purple_util_fetch_url_request, instead.
 		* PurpleConnectionUiOps.report_disconnect_reason
@@ -239,6 +239,9 @@ version 3.0.0 (??/??/????):
 		* wpurple_g_access
 		* xmlnode_set_attrib_with_namespace
 		* xmlnode_set_attrib_with_prefix
+
+version 2.10.1:
+	* No changes
 
 version 2.10.0:
 	libpurple:

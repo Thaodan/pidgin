@@ -1,10 +1,17 @@
 Pidgin and Finch: The Pimpin' Penguin IM Clients That're Good for the Soul
 
 version 3.0.0 (??/??/????):
+	libpurple:
+	* Support new connection states and signals for NetworkManager 0.9+.
+	  (Dan Williams) (#13859)
+
 	AIM and ICQ:
-	* Make buddy list management code more efficient. (Oliver) (#4816)
+	* Allow signing on with usernames containing periods and
+	  underscores. (#13500)
+	* Allow adding buddies containing periods and underscores. (#13500)
 	* Don't try to format ICQ usernames entered as email addresses.
 	  Gets rid of an "Unable to format username" error at login. (#13883)
+	* Make buddy list management code more efficient. (Oliver) (#4816)
 
 	Bonjour:
 	* Support file transfers up to ~9 EiB.
@@ -37,12 +44,32 @@ version 3.0.0 (??/??/????):
 	  (#14529)
 	* Support file transfers up to ~9 EiB.
 
-version 2.10.1 (10/11/2011):
+	Plugins:
+	* The Voice/Video Settings plugin supports using the sndio GStreamer
+	 backends. (Brad Smith) (#14414)
+
+version 2.10.1 (12/06/2011):
 	Finch:
 	* Fix compilation on OpenBSD.
 
+	AIM and ICQ:
+	* Fix remotely-triggerable crashes by validating strings in a few
+	  messages related to buddy list management.  Thanks to Evgeny Boger
+	  for reporting this!  (#14682)
+
+	Bonjour:
+	* IPv6 fixes (Linus Lüssing)
+
 	Gadu-Gadu:
 	* Fix problems linking against GnuTLS. (#14544)
+
+	IRC:
+	* Fix a memory leak when admitting UTF-8 text with a non-UTF-8 primary
+	  encoding.  (#14700)
+
+	Jabber:
+	* Fix crashes and memory leaks when receiving malformed voice
+	  and video requests.  Thanks to Thijs Alkemade for reporting this!
 
 	Sametime:
 	* Separate "username" and "server" when adding new Sametime accounts.
