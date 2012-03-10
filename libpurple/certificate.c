@@ -636,12 +636,24 @@ gboolean
 purple_certificate_pool_delete(PurpleCertificatePool *pool, const gchar *id)
 {
 	gboolean ret = FALSE;
+	int issuer_idx = 1;
+	gchar *issuer_id = NULL;
 
 	g_return_val_if_fail(pool, FALSE);
 	g_return_val_if_fail(id, FALSE);
 	g_return_val_if_fail(pool->delete_cert, FALSE);
 
 	ret = (pool->delete_cert)(id);
+
+	/* delete certs from a possible cert chain */
+	issuer_id = g_strdup_printf("%s.%d", id, issuer_idx);
+	while ((pool->cert_in_pool)(issuer_id)) { 
+		(pool->delete_cert)(issuer_id);
+		/* No error if this fails since we don't know how many certs in chain */
+		g_free(issuer_id);
+		issuer_idx += 1;
+		issuer_id = g_strdup_printf("%s.%d", id, issuer_idx);
+	}
 
 	/* Signal that the certificate was deleted if success */
 	if (ret) {
@@ -674,6 +686,135 @@ purple_certificate_pool_destroy_idlist(GList *idlist)
 	g_list_free(idlist);
 }
 
+static gboolean
+is_valid_crt_chain(GList *crts)
+{
+	PurpleCertificate *crt = NULL;
+	PurpleCertificate *last_crt = NULL;
+	GList *item = NULL;
+	gchar *unique_id = NULL;
+	gchar *issuer_unique_id = NULL;
+	gboolean good = TRUE;
+
+
+	/* Check if certs are in the correct order */
+	item = g_list_first(crts);
+	last_crt = (PurpleCertificate*)item->data;
+	g_return_val_if_fail(NULL != last_crt, FALSE);
+	item = g_list_next(item);
+	while (NULL != item && good) {
+		crt = (PurpleCertificate*)item->data;
+		g_return_val_if_fail(NULL != crt, FALSE);
+
+		unique_id = purple_certificate_get_unique_id(crt);
+		issuer_unique_id = purple_certificate_get_issuer_unique_id(last_crt);
+
+		if (0 != g_strcmp0(unique_id, issuer_unique_id)) {
+			purple_debug_error("certificate", "Broken certificate chain: %s %s\n",
+				unique_id, issuer_unique_id);
+			good = FALSE;
+		}
+
+		g_free(unique_id);
+		g_free(issuer_unique_id);
+		last_crt = crt;
+		item = g_list_next(item);
+	}
+
+	return good;
+}
+
+gboolean
+purple_certificate_pool_store_chain(PurpleCertificatePool *pool, const gchar *id, GList *crts)
+{
+	PurpleCertificate *crt = NULL;
+	int issuer_idx = 1;
+	GList *item = NULL;
+	gchar *newid = NULL;
+
+	g_return_val_if_fail(NULL != pool, FALSE);
+	g_return_val_if_fail(NULL != id, FALSE);
+	g_return_val_if_fail(NULL != crts, FALSE);
+	g_return_val_if_fail(is_valid_crt_chain(crts), FALSE);
+
+	item = g_list_first(crts);
+	crt = (PurpleCertificate*)item->data;
+	g_return_val_if_fail(NULL != crt, FALSE);
+
+	if (!purple_certificate_pool_store(pool, id, crt)) {
+		return FALSE;
+	}
+
+	item = g_list_next(item);
+	while (NULL != item) {
+		crt = (PurpleCertificate*)item->data;
+		g_return_val_if_fail(NULL != crt, FALSE);
+
+		newid = g_strdup_printf("%s.%d", id, issuer_idx);
+		if (!purple_certificate_pool_store(pool, newid, crt)) {
+			purple_debug_error("certificate",
+				"Failed to store chain cert using id %s\n", newid);
+			g_free(newid);
+			/* TODO: delete any certs we added before error */
+			return FALSE;
+		}
+
+		issuer_idx += 1;
+		g_free(newid);
+		item = g_list_next(item);
+	}
+
+	return TRUE;	
+}
+
+GList*
+purple_certificate_pool_retrieve_chain(PurpleCertificatePool *pool, const gchar *id, gboolean *complete)
+{
+	PurpleCertificate *crt = NULL;
+	PurpleCertificate *issuer = NULL;
+	GList *chain = NULL;
+	int issuer_idx = 1;
+	gboolean found_self_signed = FALSE;
+
+	g_return_val_if_fail(NULL != pool, NULL);
+	g_return_val_if_fail(NULL != id, NULL);
+
+	if (NULL != complete)
+		*complete = FALSE;
+
+	crt = purple_certificate_pool_retrieve(pool, id);
+	if (NULL == crt)
+		return NULL;
+
+	chain = g_list_append(chain, crt);
+
+	issuer_idx = 1;
+	do {
+		gchar *issuer_id = NULL;
+		gchar *crt_unique_id = NULL;
+		gchar *issuer_unique_id = NULL;
+
+		issuer_id = g_strdup_printf("%s.%d", id, issuer_idx);
+		issuer = purple_certificate_pool_retrieve(pool, issuer_id);
+		if (NULL != issuer) {
+			chain = g_list_append(chain, issuer);
+			crt_unique_id = purple_certificate_get_unique_id(crt);
+			issuer_unique_id = purple_certificate_get_issuer_unique_id(crt);
+			if (0 == g_strcmp0(crt_unique_id, issuer_unique_id)) {
+				found_self_signed = TRUE;
+			}
+		}
+		issuer_idx += 1;
+		g_free(issuer_id);
+		g_free(crt_unique_id);
+		g_free(issuer_unique_id);
+	} while (NULL != issuer && !found_self_signed);
+
+	if (NULL != complete)
+		*complete = found_self_signed;
+
+	return chain;
+}
 
 /****************************************************************************/
 /* Builtin Verifiers, Pools, etc.                                           */
@@ -1287,6 +1428,177 @@ static PurpleCertificatePool x509_tls_peers = {
 	NULL
 };
 
+/***** User's certificates and keys *****/
+/* This code is just a duplication of x509_tls_peers. We should
+   share this code.
+*/
+static PurpleCertificatePool x509_user;
+
+static gboolean
+x509_user_init(void)
+{
+	gchar *poolpath;
+	int ret;
+
+	/* Set up key cache here if it isn't already done */
+	poolpath = purple_certificate_pool_mkpath(&x509_user, NULL);
+	ret = purple_build_dir(poolpath, 0700); /* Make it this user only */
+
+	if (ret != 0)
+		purple_debug_info("certificate/user",
+				"Could not create %s.  Certificates will not be cached.\n",
+				poolpath);
+
+	g_free(poolpath);
+
+	return TRUE;
+}
+
+static gboolean
+x509_user_cert_in_pool(const gchar *id)
+{
+	gchar *keypath;
+	gboolean ret = FALSE;
+
+	g_return_val_if_fail(id, FALSE);
+
+	keypath = purple_certificate_pool_mkpath(&x509_user, id);
+
+	ret = g_file_test(keypath, G_FILE_TEST_IS_REGULAR);
+
+	g_free(keypath);
+	return ret;
+}
+
+static PurpleCertificate *
+x509_user_get_cert(const gchar *id)
+{
+	PurpleCertificateScheme *x509;
+	PurpleCertificate *crt;
+	gchar *keypath;
+
+	g_return_val_if_fail(id, NULL);
+
+	/* Is it in the pool? */
+	if ( !x509_user_cert_in_pool(id) ) {
+		return NULL;
+	}
+
+	/* Look up the X.509 scheme */
+	x509 = purple_certificate_find_scheme("x509");
+	g_return_val_if_fail(x509, NULL);
+
+	/* Okay, now find and load that key */
+	keypath = purple_certificate_pool_mkpath(&x509_user, id);
+	crt = purple_certificate_import(x509, keypath);
+
+	g_free(keypath);
+
+	return crt;
+}
+
+static gboolean
+x509_user_put_cert(const gchar *id, PurpleCertificate *crt)
+{
+	gboolean ret = FALSE;
+	gchar *keypath;
+
+	g_return_val_if_fail(crt, FALSE);
+	g_return_val_if_fail(crt->scheme, FALSE);
+	/* Make sure that this is some kind of X.509 certificate */
+	/* TODO: Perhaps just check crt->scheme->name instead? */
+	g_return_val_if_fail(crt->scheme == purple_certificate_find_scheme(x509_user.scheme_name), FALSE);
+
+	/* Work out the filename and export */
+	keypath = purple_certificate_pool_mkpath(&x509_user, id);
+	ret = purple_certificate_export(keypath, crt);
+
+	g_free(keypath);
+	return ret;
+}
+
+static gboolean
+x509_user_delete_cert(const gchar *id)
+{
+	gboolean ret = FALSE;
+	gchar *keypath;
+
+	g_return_val_if_fail(id, FALSE);
+
+	/* Is the id even in the pool? */
+	if (!x509_user_cert_in_pool(id)) {
+		purple_debug_warning("certificate/user",
+				     "Id %s wasn't in the pool\n",
+				     id);
+		return FALSE;
+	}
+
+	/* OK, so work out the keypath and delete the thing */
+	keypath = purple_certificate_pool_mkpath(&x509_user, id);
+	if ( unlink(keypath) != 0 ) {
+		purple_debug_error("certificate/user",
+				   "Unlink of %s failed!\n",
+				   keypath);
+		ret = FALSE;
+	} else {
+		ret = TRUE;
+	}
+
+	g_free(keypath);
+	return ret;
+}
+
+static GList *
+x509_user_get_idlist(void)
+{
+	GList *idlist = NULL;
+	GDir *dir;
+	const gchar *entry;
+	gchar *poolpath;
+
+	/* Get a handle on the pool directory */
+	poolpath = purple_certificate_pool_mkpath(&x509_user, NULL);
+	dir = g_dir_open(poolpath,
+			 0,     /* No flags */
+			 NULL); /* Not interested in what the error is */
+	g_free(poolpath);
+
+	g_return_val_if_fail(dir, NULL);
+
+	/* Traverse the directory listing and create an idlist */
+	while ( (entry = g_dir_read_name(dir)) != NULL ) {
+		/* Unescape the filename */
+		const char *unescaped = purple_unescape_filename(entry);
+
+		/* Copy the entry name into our list (GLib owns the original
+		   string) */
+		idlist = g_list_prepend(idlist, g_strdup(unescaped));
+	}
+
+	/* Release the directory */
+	g_dir_close(dir);
+
+	return idlist;
+}
+
+static PurpleCertificatePool x509_user = {
+	"x509",                       /* Scheme name */
+	"user",                       /* Pool name */
+	N_("SSL Peers Cache"),        /* User-friendly name */
+	NULL,                         /* Internal data */
+	x509_user_init,               /* init */
+	NULL,                         /* uninit not required */
+	x509_user_cert_in_pool,  /* Certificate exists? */
+	x509_user_get_cert,      /* Cert retriever */
+	x509_user_put_cert,      /* Cert writer */
+	x509_user_delete_cert,   /* Cert remover */
+	x509_user_get_idlist,    /* idlist retriever */
+
+	NULL,
+	NULL,
+	NULL,
+	NULL
+};
 
 /***** A Verifier that uses the tls_peers cache and the CA pool to validate certificates *****/
 static PurpleCertificateVerifier x509_tls_cached;
@@ -1787,6 +2099,7 @@ purple_certificate_init(void)
 	purple_certificate_register_verifier(&x509_singleuse);
 	purple_certificate_register_pool(&x509_ca);
 	purple_certificate_register_pool(&x509_tls_peers);
+	purple_certificate_register_pool(&x509_user);
 	purple_certificate_register_verifier(&x509_tls_cached);
 }
 

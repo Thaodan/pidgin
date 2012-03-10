@@ -208,7 +208,8 @@ struct _PurpleCertificateScheme
 	 *
 	 * @param crt   Certificate instance
 	 * @return Newly allocated string that can be used to uniquely
-	 *         identify the certificate.
+	 *         identify the certificate. The character set must be
+	 *         valid as a filename, so ASCII is safest.
 	 */
 	gchar * (* get_unique_id)(PurpleCertificate *crt);
 
@@ -669,6 +670,51 @@ purple_certificate_pool_retrieve(PurpleCertificatePool *pool, const gchar *id);
  */
 gboolean
 purple_certificate_pool_store(PurpleCertificatePool *pool, const gchar *id, PurpleCertificate *crt);
+
+/**
+ * Add a certificate chain to the pool.
+ * The certificate list must be ordered with the end
+ * user certificate first. Each additional certificate must be the issuer
+ * of the prior certificate in the list.
+ *
+ * Each certificate in the chain will be stored indvidually in the pool
+ * with an id dervied from the given id. While the end user certificate
+ * will be stored and may be retrieved individually using the id given
+ * here, the remaining certificates will have other ids and should
+ * no be retrieved via purple_certificate_pool_retrieve() as the ids
+ * used to store them could change in the future.
+ *
+ * @param pool   Pool to add the certificates to
+ * @param id     Id to store the chain under
+ * @param crts   List of PurpleCertificate. The first certificate must be the
+ *               end user certificate. Each following certificate should 
+ *               belong to the issuer of the prior certificate. The caller is
+ *               responsible for freeing crts.
+ * @return       TRUE if the certificate chain was successfully stored, otherwise FALSE
+ */
+gboolean
+purple_certificate_pool_store_chain(PurpleCertificatePool *pool, const gchar *id, GList *crts);
+
+/**
+ * Retrieve a certificate chain from the pool.
+ * The returned certificate list will be ordered with the end
+ * user certificate first. Each additional certificate will be the issuer
+ * of the prior certificate in the list. There is no guarantee the complete
+ * chain will be available and the @complete flag should be checked if this
+ * is necessary.
+ * 
+ * @param pool   Pool to retrieve the certificates to
+ * @param id     Id used to store the chain
+ * @param complete If not NULL set to TRUE if a complete certificate chain was
+ *                 found. A complete chain ends with a self-signed certificate.
+ * @return       List of PurpleCertificate. The first certificate will be the
+ *               end user certificate. Each following certificate will 
+ *               belong to the issuer of the prior certificate. Returns NULL
+ *               if the certificate chain cannot be found. The caller is
+ *               responsible for freeing the returned certificate list.
+ */
+GList*
+purple_certificate_pool_retrieve_chain(PurpleCertificatePool *pool, const gchar *id, gboolean *complete);
 
 /**
  * Remove a certificate from a pool

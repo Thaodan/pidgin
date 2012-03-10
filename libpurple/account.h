@@ -129,6 +129,7 @@ struct _PurpleAccount
 	char *alias;                /**< How you appear to yourself.            */
 	char *password;             /**< The account password.                  */
 	char *user_info;            /**< User information.                      */
+//XXX	char *certificate_id;       /**< User certificate id.                   */
 
 	char *buddy_icon_path;      /**< The buddy icon's non-cached path.      */
 
@@ -367,6 +368,14 @@ void purple_account_set_username(PurpleAccount *account, const char *username);
  * @param password The password.
  */
 void purple_account_set_password(PurpleAccount *account, const char *password);
+
+/**
+ * Sets id of the certificate to use for authentication with this account.
+ *
+ * @param account The account.
+ * @param id The user's certificate id.
+ */
+// XXX void purple_account_set_certificate_id(PurpleAccount *account, const char* id);
 
 /**
  * Sets the account's alias.
@@ -681,6 +690,15 @@ const char *purple_account_get_username(const PurpleAccount *account);
  * @return The password.
  */
 const char *purple_account_get_password(const PurpleAccount *account);
+
+/**
+ * Returns the id of the certificate to use for client-side PKI authentcation.
+ *
+ * @param account The account.
+ *
+ * @return The certificate id.
+ */
+// XXX const char *purple_account_get_certificate_id(const PurpleAccount *account);
 
 /**
  * Returns the account's alias.
@@ -1140,6 +1158,17 @@ PurpleAccount *purple_accounts_find(const char *name, const char *protocol);
  * what you're doing.
  */
 void purple_accounts_restore_current_statuses(void);
+
+/**
+ * Get account options. Prior to version 3.0 this was accessed
+ * via PurplePluginInfo.protocol_options. 
+ *
+ * @param account The account
+ *
+ * @returns List of PurpleAccountOption
+ * @since 3.0
+ */
+GList* purple_account_get_options(PurplePluginProtocolInfo *prpl_info);
 
 /*@}*/
 
