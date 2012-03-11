@@ -100,6 +100,7 @@ else
 st = $(GADU_CFLAGS)
 pkg_LTLIBRARIES = libgg.la
 libgg_la_SOURCES = $(GGSOURCES)
+libgg_la_CFLAGS = $(AM_CFLAGS)
 libgg_la_LIBADD  = $(GLIB_LIBS) $(GADU_LIBS)
 
 endif
@@ -111,3 +112,6 @@ AM_CPPFLAGS = \
 	$(GLIB_CFLAGS) \
 	$(DEBUG_CFLAGS)
 
+if USE_GNUTLS
+libgg_la_CFLAGS += $(GNUTLS_CFLAGS)
+endif
