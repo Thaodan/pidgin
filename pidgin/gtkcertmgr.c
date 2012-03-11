@@ -1038,6 +1038,7 @@ user_mgmt_info_cb(GtkWidget *button, gpointer data)
 	GtkTreeModel *model;
 	gchar *id;
 	PurpleCertificate *crt;
+	gchar *title;
 
 	/* See if things are selected */
 	if (!gtk_tree_selection_get_selected(select, &model, &iter)) {
@@ -1054,10 +1055,14 @@ user_mgmt_info_cb(GtkWidget *button, gpointer data)
 	g_return_if_fail(crt);
 
 	/* Fire the notification */
-	purple_certificate_display_x509(crt);
+	title = g_strdup_printf(_("Certificate Information for %s"), id);
+	purple_request_certificate(um_dat, title, NULL, NULL, crt,
+	                           _("OK"), G_CALLBACK(purple_certificate_destroy),
+	                           _("Cancel"), G_CALLBACK(purple_certificate_destroy),
+	                           crt);
 
 	g_free(id);
-	purple_certificate_destroy(crt);
+	g_free(title);
 }
 
 /***********************************************************
