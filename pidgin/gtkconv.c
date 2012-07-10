@@ -1066,12 +1066,10 @@ menu_join_chat_cb(GtkAction *action, gpointer data)
 static void
 savelog_writefile_cb(void *user_data, const char *filename)
 {
-	/* TODO WEBKIT: I don't know how to support this using webkit yet. */
-#if 0
 	PurpleConversation *conv = (PurpleConversation *)user_data;
+	GtkWebView *webview;
 	FILE *fp;
 	const char *name;
-	char **lines;
 	gchar *text;
 
 	if ((fp = g_fopen(filename, "w+")) == NULL) {
@@ -1079,22 +1077,27 @@ savelog_writefile_cb(void *user_data, const char *filename)
 		return;
 	}
 
+	webview = GTK_WEBVIEW(PIDGIN_CONVERSATION(conv)->webview);
 	name = purple_conversation_get_name(conv);
-	fprintf(fp, "<html>\n<head>\n");
-	fprintf(fp, "<meta http-equiv=\"content-type\" content=\"text/html; charset=UTF-8\">\n");
-	fprintf(fp, "<title>%s</title>\n</head>\n<body>\n", name);
-	fprintf(fp, _("<h1>Conversation with %s</h1>\n"), name);
+	fprintf(fp, "<html>\n");
 
-	lines = gtk_imhtml_get_markup_lines(
-		GTK_IMHTML(PIDGIN_CONVERSATION(conv)->imhtml));
-	text = g_strjoinv("<br>\n", lines);
+	fprintf(fp, "<head>\n");
+	fprintf(fp, "<meta http-equiv=\"content-type\" content=\"text/html; charset=UTF-8\">\n");
+	fprintf(fp, "<title>%s</title>\n", name);
+	text = gtk_webview_get_head_html(webview);
 	fprintf(fp, "%s", text);
 	g_free(text);
-	g_strfreev(lines);
+	fprintf(fp, "</head>\n");
 
-	fprintf(fp, "\n</body>\n</html>\n");
+	fprintf(fp, "<body>\n");
+	fprintf(fp, _("<h1>Conversation with %s</h1>\n"), name);
+	text = gtk_webview_get_body_html(webview);
+	fprintf(fp, "%s", text);
+	g_free(text);
+	fprintf(fp, "\n</body>\n");
+
+	fprintf(fp, "</html>\n");
 	fclose(fp);
-#endif /* if 0 */
 }
 
 /*
@@ -1214,9 +1217,9 @@ menu_initiate_media_call_cb(GtkAction *action, gpointer data)
 
 	purple_prpl_initiate_media(account,
 			purple_conversation_get_name(conv),
-			action == win->audio_call ? PURPLE_MEDIA_AUDIO :
-			action == win->video_call ? PURPLE_MEDIA_VIDEO :
-			action == win->audio_video_call ? PURPLE_MEDIA_AUDIO |
+			action == win->menu.audio_call ? PURPLE_MEDIA_AUDIO :
+			action == win->menu.video_call ? PURPLE_MEDIA_VIDEO :
+			action == win->menu.audio_video_call ? PURPLE_MEDIA_AUDIO |
 			PURPLE_MEDIA_VIDEO : PURPLE_MEDIA_NONE);
 }
 #endif
@@ -1505,13 +1508,6 @@ menu_sounds_cb(GtkAction *action, gpointer data)
 	node = get_conversation_blist_node(conv);
 	if (node)
 		purple_blist_node_set_bool(node, "gtk-mute-sound", !gtkconv->make_sound);
-}
-
-static void
-menu_timestamps_cb(GtkAction *action, gpointer data)
-{
-	purple_prefs_set_bool(PIDGIN_PREFS_ROOT "/conversations/show_timestamps",
-		gtk_toggle_action_get_active(GTK_TOGGLE_ACTION(action)));
 }
 
 static void
@@ -3168,7 +3164,6 @@ static const GtkToggleActionEntry menu_toggle_entries[] = {
 	{ "EnableLogging", NULL, N_("Enable _Logging"), NULL, NULL, G_CALLBACK(menu_logging_cb), FALSE },
 	{ "EnableSounds", NULL, N_("Enable _Sounds"), NULL, NULL, G_CALLBACK(menu_sounds_cb), FALSE },
 	{ "ShowFormattingToolbars", NULL, N_("Show Formatting _Toolbars"), NULL, NULL, G_CALLBACK(menu_toolbar_cb), FALSE },
-	{ "ShowTimestamps", NULL, N_("Show Ti_mestamps"), NULL, NULL, G_CALLBACK(menu_timestamps_cb), FALSE },
 };
 
 static const char *conversation_menu =
@@ -3213,7 +3208,6 @@ static const char *conversation_menu =
 			"<menuitem action='EnableSounds'/>"
 			"<separator/>"
 			"<menuitem action='ShowFormattingToolbars'/>"
-			"<menuitem action='ShowTimestamps'/>"
 		"</menu>"
 	"</menubar>"
 "</ui>";
@@ -3368,25 +3362,25 @@ regenerate_media_items(PidginWindow *win)
 				purple_prpl_get_media_caps(account,
 				purple_conversation_get_name(conv));
 
-		gtk_action_set_sensitive(win->audio_call,
+		gtk_action_set_sensitive(win->menu.audio_call,
 				caps & PURPLE_MEDIA_CAPS_AUDIO
 				? TRUE : FALSE);
-		gtk_action_set_sensitive(win->video_call,
+		gtk_action_set_sensitive(win->menu.video_call,
 				caps & PURPLE_MEDIA_CAPS_VIDEO
 				? TRUE : FALSE);
-		gtk_action_set_sensitive(win->audio_video_call,
+		gtk_action_set_sensitive(win->menu.audio_video_call,
 				caps & PURPLE_MEDIA_CAPS_AUDIO_VIDEO
 				? TRUE : FALSE);
 	} else if (purple_conversation_get_type(conv)
 			== PURPLE_CONV_TYPE_CHAT) {
 		/* for now, don't care about chats... */
-		gtk_action_set_sensitive(win->audio_call, FALSE);
-		gtk_action_set_sensitive(win->video_call, FALSE);
-		gtk_action_set_sensitive(win->audio_video_call, FALSE);
+		gtk_action_set_sensitive(win->menu.audio_call, FALSE);
+		gtk_action_set_sensitive(win->menu.video_call, FALSE);
+		gtk_action_set_sensitive(win->menu.audio_video_call, FALSE);
 	} else {
-		gtk_action_set_sensitive(win->audio_call, FALSE);
-		gtk_action_set_sensitive(win->video_call, FALSE);
-		gtk_action_set_sensitive(win->audio_video_call, FALSE);
+		gtk_action_set_sensitive(win->menu.audio_call, FALSE);
+		gtk_action_set_sensitive(win->menu.video_call, FALSE);
+		gtk_action_set_sensitive(win->menu.audio_video_call, FALSE);
 	}
 #endif
 }
@@ -3614,13 +3608,13 @@ setup_menubar(PidginWindow *win)
 		                          "/Conversation/ConversationMenu/ViewLog");
 
 #ifdef USE_VV
-	win->audio_call =
+	win->menu.audio_call =
 		gtk_ui_manager_get_action(win->menu.ui,
 					    "/Conversation/ConversationMenu/MediaMenu/AudioCall");
-	win->video_call =
+	win->menu.video_call =
 		gtk_ui_manager_get_action(win->menu.ui,
 					    "/Conversation/ConversationMenu/MediaMenu/VideoCall");
-	win->audio_video_call =
+	win->menu.audio_video_call =
 		gtk_ui_manager_get_action(win->menu.ui,
 					    "/Conversation/ConversationMenu/MediaMenu/AudioVideoCall");
 #endif
@@ -3702,9 +3696,6 @@ setup_menubar(PidginWindow *win)
 	win->menu.show_formatting_toolbar =
 		gtk_ui_manager_get_action(win->menu.ui,
 		                          "/Conversation/OptionsMenu/ShowFormattingToolbars");
-	win->menu.show_timestamps =
-		gtk_ui_manager_get_action(win->menu.ui,
-		                          "/Conversation/OptionsMenu/ShowTimestamps");
 
 	win->menu.tray = pidgin_menu_tray_new();
 	gtk_menu_shell_append(GTK_MENU_SHELL(win->menu.menubar),
@@ -5097,6 +5088,7 @@ replace_header_tokens(PurpleConversation *conv, const char *text)
 
 	str = g_string_new(NULL);
 	while ((cur = strchr(cur, '%'))) {
+		char *freeval = NULL;
 		const char *replace = NULL;
 		const char *fin = NULL;
 
@@ -5126,7 +5118,6 @@ replace_header_tokens(PurpleConversation *conv, const char *text)
 
 		} else if (g_str_has_prefix(cur, "%timeOpened")) {
 			const char *tmp = cur + strlen("%timeOpened");
-			char *format = NULL;
 
 			if (*tmp == '{') {
 				const char *end;
@@ -5134,17 +5125,20 @@ replace_header_tokens(PurpleConversation *conv, const char *text)
 				end = strstr(tmp, "}%");
 				if (!end) /* Invalid string */
 					continue;
-				format = g_strndup(tmp, end - tmp);
+				if (!tm) {
+					mtime = time(NULL);
+					tm = localtime(&mtime);
+				}
+				replace = freeval = purple_uts35_to_str(tmp, end - tmp, tm);
 				fin = end + 1;
-			}
+			} else {
+				if (!tm) {
+					mtime = time(NULL);
+					tm = localtime(&mtime);
+				}
 
-			if (!tm) {
-				mtime = time(NULL);
-				tm = localtime(&mtime);
+				replace = purple_utf8_strftime("%X", tm);
 			}
-
-			replace = purple_utf8_strftime(format ? format : "%X", tm);
-			g_free(format);
 
 		} else if (g_str_has_prefix(cur, "%dateOpened%")) {
 			if (!tm) {
@@ -5170,6 +5164,8 @@ replace_header_tokens(PurpleConversation *conv, const char *text)
 		} else {
 			prev = cur = strchr(cur + 1, '%') + 1;
 		}
+		g_free(freeval);
+		freeval = NULL;
 	}
 
 	/* And wrap it up */
@@ -6199,7 +6195,6 @@ replace_message_tokens(
 
 		} else if (g_str_has_prefix(cur, "%time")) {
 			const char *tmp = cur + strlen("%time");
-			char *format = NULL;
 
 			if (*tmp == '{') {
 				char *end;
@@ -6207,15 +6202,16 @@ replace_message_tokens(
 				end = strstr(tmp, "}%");
 				if (!end) /* Invalid string */
 					continue;
-				format = g_strndup(tmp, end - tmp);
+				if (!tm)
+					tm = localtime(&mtime);
+				replace = freeval = purple_uts35_to_str(tmp, end - tmp, tm);
 				fin = end + 1;
+			} else {
+				if (!tm)
+					tm = localtime(&mtime);
+
+				replace = purple_utf8_strftime("%X", tm);
 			}
-
-			if (!tm)
-				tm = localtime(&mtime);
-
-			replace = purple_utf8_strftime(format ? format : "%X", tm);
-			g_free(format);
 
 		} else if (g_str_has_prefix(cur, "%shortTime%")) {
 			if (!tm)
@@ -6412,7 +6408,7 @@ pidgin_conv_write_conv(PurpleConversation *conv, const char *name, const char *a
 	}
 	gtkconv->last_flags = flags;
 
-	smileyed = smiley_parse_markup(message, purple_account_get_protocol_id(account));
+	smileyed = smiley_parse_markup(displaying, purple_account_get_protocol_id(account));
 	msg = replace_message_tokens(message_html, conv, name, alias, smileyed, flags, mtime);
 	escape = gtk_webview_quote_js_string(msg ? msg : "");
 	script = g_strdup_printf("%s(%s)", func, escape);
@@ -6654,10 +6650,13 @@ pidgin_conv_write_conv(PurpleConversation *conv, const char *name, const char *a
 
 static gboolean get_iter_from_chatbuddy(PurpleConvChatBuddy *cb, GtkTreeIter *iter)
 {
-	GtkTreeRowReference *ref = purple_conv_chat_cb_get_ui_data(cb);
+	GtkTreeRowReference *ref;
 	GtkTreePath *path;
 	GtkTreeModel *model;
 
+	g_return_val_if_fail(cb != NULL, FALSE);
+
+	ref = purple_conv_chat_cb_get_ui_data(cb);
 	if (!ref)
 		return FALSE;
 
@@ -6837,6 +6836,9 @@ pidgin_conv_chat_update_user(PurpleConversation *conv, const char *user)
 		return;
 
 	cbuddy = purple_conv_chat_cb_find(chat, user);
+	if (!cbuddy)
+		return;
+
 	if (get_iter_from_chatbuddy(cbuddy, &iter)) {
 		GtkTreeRowReference *ref = purple_conv_chat_cb_get_ui_data(cbuddy);
 		gtk_list_store_remove(GTK_LIST_STORE(model), &iter);
@@ -7856,37 +7858,6 @@ tab_side_pref_cb(const char *name, PurplePrefType type,
 }
 
 static void
-show_timestamps_pref_cb(const char *name, PurplePrefType type,
-						gconstpointer value, gpointer data)
-{
-	GList *l;
-	PurpleConversation *conv;
-	PidginConversation *gtkconv;
-	PidginWindow *win;
-
-	for (l = purple_get_conversations(); l != NULL; l = l->next)
-	{
-		conv = (PurpleConversation *)l->data;
-
-		if (!PIDGIN_IS_PIDGIN_CONVERSATION(conv))
-			continue;
-
-		gtkconv = PIDGIN_CONVERSATION(conv);
-		win     = gtkconv->win;
-
-		gtk_toggle_action_set_active(
-		        GTK_TOGGLE_ACTION(win->menu.show_timestamps),
-		        (gboolean)GPOINTER_TO_INT(value));
-
-/* TODO WEBKIT: Use WebKit version of this. */
-#if 0
-		gtk_imhtml_show_comments(GTK_IMHTML(gtkconv->imhtml),
-			(gboolean)GPOINTER_TO_INT(value));
-#endif /* if 0 */
-	}
-}
-
-static void
 show_formatting_toolbar_pref_cb(const char *name, PurplePrefType type,
 								gconstpointer value, gpointer data)
 {
@@ -8149,7 +8120,7 @@ account_signing_off(PurpleConnection *gc)
 				purple_conversation_get_account(conv) == account) {
 			purple_conversation_set_data(conv, "want-to-rejoin", GINT_TO_POINTER(TRUE));
 			purple_conversation_write(conv, NULL, _("The account has disconnected and you are no "
-						"longer in this chat. You will be automatically rejoined in the chat when "
+						"longer in this chat. You will automatically rejoin the chat when "
 						"the account reconnects."),
 					PURPLE_MESSAGE_SYSTEM, time(NULL));
 		}
@@ -8426,6 +8397,12 @@ gboolean pidgin_conv_attach_to_conversation(PurpleConversation *conv)
 	return TRUE;
 }
 
+PurpleTheme *
+pidgin_conversations_get_default_theme(void)
+{
+	return default_conv_theme;
+}
+
 void *
 pidgin_conversations_get_handle(void)
 {
@@ -8456,7 +8433,6 @@ pidgin_conversations_init(void)
 	purple_prefs_add_int(PIDGIN_PREFS_ROOT "/conversations/custom_smileys_size", 96);
 	purple_prefs_add_int(PIDGIN_PREFS_ROOT "/conversations/minimum_entry_lines", 2);
 
-	purple_prefs_add_bool(PIDGIN_PREFS_ROOT "/conversations/show_timestamps", TRUE);
 	purple_prefs_add_bool(PIDGIN_PREFS_ROOT "/conversations/show_formatting_toolbar", TRUE);
 
 	purple_prefs_add_string(PIDGIN_PREFS_ROOT "/conversations/placement", "last");
@@ -8505,8 +8481,6 @@ pidgin_conversations_init(void)
 	/* Connect callbacks. */
 	purple_prefs_connect_callback(handle, PIDGIN_PREFS_ROOT "/conversations/close_on_tabs",
 								close_on_tabs_pref_cb, NULL);
-	purple_prefs_connect_callback(handle, PIDGIN_PREFS_ROOT "/conversations/show_timestamps",
-								show_timestamps_pref_cb, NULL);
 	purple_prefs_connect_callback(handle, PIDGIN_PREFS_ROOT "/conversations/show_formatting_toolbar",
 								show_formatting_toolbar_pref_cb, NULL);
 	purple_prefs_connect_callback(handle, PIDGIN_PREFS_ROOT "/conversations/spellcheck",
@@ -9718,9 +9692,6 @@ switch_conv_cb(GtkNotebook *notebook, GtkWidget *page, gint page_num,
 	gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(win->menu.show_formatting_toolbar),
 	                             purple_prefs_get_bool(PIDGIN_PREFS_ROOT "/conversations/show_formatting_toolbar"));
 
-	gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(win->menu.show_timestamps),
-	                             purple_prefs_get_bool(PIDGIN_PREFS_ROOT "/conversations/show_timestamps"));
-
 	/*
 	 * We pause icons when they are not visible.  If this icon should
 	 * be animated then start it back up again.
@@ -9951,10 +9922,6 @@ pidgin_conv_window_destroy(PidginWindow *win)
 {
 	purple_prefs_disconnect_by_handle(win);
 	window_list = g_list_remove(window_list, win);
-
-	/* Close the "Find" dialog if it's open */
-	if (win->dialogs.search)
-		gtk_widget_destroy(win->dialogs.search);
 
 	if (win->gtkconvs) {
 		while (win->gtkconvs) {
