@@ -2,7 +2,7 @@
  * @file pkcs12.h PKCS12 API
  * @ingroup core
  * @see 
- * @since 2.2.0
+ * @since 3.0.0
  */
 
 /*
@@ -71,16 +71,12 @@ struct _PurplePkcs12Scheme
 	 *
 	 * @param filename    File path to import from
 	 * @param password    Password protecting the PKCS12 file
-	 * @param crts        List of ptrs to PurpleCertificates from the PKCS12 file.
+	 * @param credentials List of PurpleCredentials from the PKCS12 file.
 	 *                    Must be free'd by caller.
-	 * @param key         PurplePrivateKey from the PKCS12 file.
-	 *                    Must be free'd by caller.
-	 *                    We only support one private key per PKCS12 file since we
-	 *                    are otherwise unable to match the key with its certificate.
 	 * @return TRUE if at least one certificate and key were imported, and FALSE on failure
 	 */
 	gboolean (*import_pkcs12)(const gchar *filename, const gchar *password,
-				  GList **crts, PurplePrivateKey **key);
+				  GList **credentials);
 
 	/**
 	 * Exports PurpleCertificates and PurplePrivateKey to a file
@@ -112,22 +108,20 @@ struct _PurplePkcs12Scheme
  * @param scheme      Scheme to import under
  * @param filename    File path to import from
  * @param password    Password protecting the PKCS12 file
- * @param crts        Certificate chain from the PKCS12 file in the form of a list
+ * @param credentials List of PurpleCredentials. Each credentials contains:
+ *                    Certificate chain from the PKCS12 file in the form of a list
  *                    of ptrs to PurpleCertificates. The chain must be in order.
  *                    The first certificate must be the certificate corresponding to
  *                    key. Each certificate should be followed by the issuer's
  *                    certificate and end at the root CA certificate. The whole chain
  *                    need not be present.
+ *                    The PurplePrivateKey from the PKCS12 file for the certificate chain.
  *                    Must be free'd by caller.
- * @param key         PurplePrivateKey from the PKCS12 file.
- *                    Must be free'd by caller.
- *                    We only support one private key per PKCS12 file since we are
- *                    otherwise unable to match up the key with its certificate.
  * @return TRUE if at least one certificate and key were imported, and FALSE on failure
  */
 gboolean
 purple_pkcs12_import(PurplePkcs12Scheme *scheme, const gchar *filename, const gchar *password,
-		     GList **crts, PurplePrivateKey **key);
+		     GList **credentials);
 
 /**
  * Exports PurpleCertificates and PurplePrivateKey to a file

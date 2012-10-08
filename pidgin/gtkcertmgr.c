@@ -31,7 +31,9 @@
 #include "pidginstock.h"
 
 #include "certificate.h"
+#include "privatekey.h"
 #include "pkcs12.h"
+#include "credential.h"
 #include "debug.h"
 #include "notify.h"
 #include "request.h"
@@ -669,11 +671,30 @@ pkcs12_import_data_free(pkcs12_import_data *data)
 }
 
 static void
+dump_pkcs12_import_data(const char* msg, pkcs12_import_data *data)
+{
+	GList *node;
+
+	purple_debug_info("gtkcertmgr/user_mgmt", "%s: pkcs12_import_data %p\n", msg, data);
+	purple_debug_info("gtkcertmgr/user_mgmt", "\tkey = %p\n", data->key);
+	purple_debug_info("gtkcertmgr/user_mgmt", "\tcrts = %p\n", data->crts);
+
+	for (node = g_list_first(data->crts); NULL != node; node = g_list_next(node)) {	
+		purple_debug_info("gtkcertmgr/user_mgmt", "\t\tcrt = %p\n", node->data);
+		purple_debug_info("gtkcertmgr/user_mgmt", "\t\t\tscheme = %p\n", ((PurpleCertificate*)node->data)->scheme);
+		purple_debug_info("gtkcertmgr/user_mgmt", "\t\t\tdata = %p\n", ((PurpleCertificate*)node->data)->data);
+	}
+	
+}
+
+static void
 pkcs12_import_key_password_ok_cb(gboolean result, pkcs12_import_data *data)
 {
 	GList *i = NULL;
 	gchar *id = NULL;
 	PurpleCertificate *crt;
+
+	dump_pkcs12_import_data(__func__, data);
 
 	i = g_list_first(data->crts);
 	crt = (PurpleCertificate*)i->data;
@@ -696,6 +717,7 @@ pkcs12_import_key_password_cancel_cb(pkcs12_import_data *data)
 static void
 pkcs12_import_name_ok_cb(pkcs12_import_data *data, char* name)
 {
+	dump_pkcs12_import_data(__func__, data);
 	g_free(data->name);
 	data->name = g_strdup(name);
 
@@ -721,10 +743,9 @@ user_mgmt_import_pkcs12(const gchar* filename, const gchar* password)
 {
 	PurpleCertificateScheme *x509_crts;
 	PurplePrivateKeyScheme *x509_keys;
-	GList *crts = NULL;
-	PurplePrivateKey *key = NULL;
 	pkcs12_import_data *data;
 	gboolean result;
+	GList *creds = NULL;
 
 	purple_debug_info("gtkcertmgr/user_mgmt", "Importing pkcs12 file %s with password XXXXXX\n", filename);
 
@@ -735,36 +756,43 @@ user_mgmt_import_pkcs12(const gchar* filename, const gchar* password)
 	g_return_if_fail(x509_keys);
 
 	/* Now load the certificate/keys from disk */
-	result = purple_pkcs12_import(um_dat->pkcs12, filename, password, &crts, &key);
+	result = purple_pkcs12_import(um_dat->pkcs12, filename, password, &creds);
+
+	purple_debug_info("gtkcertmgr/user_mgmt", "Importing pkcs12 succeeded\n");
 
 	/* Did it work? */
 	if (result) {
-		/* key id must be the same as the corresponding cert */
-		/* We will only add all the certs to the pool if the key add is ok */
-		PurpleCertificate *crt = (PurpleCertificate*)(g_list_first(crts)->data);
-		gchar *id = purple_certificate_get_unique_id(crt);
-		gchar *name = purple_certificate_get_subject_name(crt);
+		GList *i;
+		for (i = g_list_first(creds); NULL != i; i = g_list_next(i)) {
+			PurpleCredential *cred = (PurpleCredential*)i->data;
 
-		data = g_new0(pkcs12_import_data, 1);
-		data->crts = crts;
-		data->key = key;
+			/* We will only add all the certs to the pool if the key add is ok */
+			PurpleCertificate *crt = (PurpleCertificate*)(g_list_first(cred->crts)->data);
+			gchar *id = purple_certificate_get_unique_id(crt);
+			gchar *name = purple_certificate_get_subject_name(crt);
 
-		purple_privatekey_pool_store_request(
-			um_dat->user_keys,
-			name,
-			id,
-			key,
-			G_CALLBACK(pkcs12_import_key_password_ok_cb),
-			G_CALLBACK(pkcs12_import_key_password_cancel_cb),
-			data);
+			data = g_new0(pkcs12_import_data, 1);
+			data->crts = cred->crts;
+			data->key = cred->key;
+
+			dump_pkcs12_import_data(__func__, data);
+
+			purple_privatekey_pool_store_request(
+				um_dat->user_keys,
+				name,
+				id,
+				cred->key,
+				G_CALLBACK(pkcs12_import_key_password_ok_cb),
+				G_CALLBACK(pkcs12_import_key_password_cancel_cb),
+				data);
+		}
+
+		purple_debug_info("gtkcertmgr/user_mgmt", "Done saving imported credentials\n");
 	} else {
 		/* Errors! Oh no! */
 		/* TODO: Perhaps find a way to be specific about what just
 		   went wrong? */
 		gchar * secondary;
-
-		purple_certificate_destroy_list(crts);
-		purple_privatekey_destroy(key);
 
 		secondary = g_strdup_printf(_("File %s could not be imported.\nMake sure that the file is readable, in PKCS12 format and you used the correct password.\n"), filename);
 		purple_notify_message(NULL, PURPLE_NOTIFY_MSG_ERROR,

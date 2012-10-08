@@ -93,6 +93,7 @@
 #include <time.h>
 
 #include <glib.h>
+#include <glib-object.h>
 
 #ifdef __cplusplus
 extern "C" {

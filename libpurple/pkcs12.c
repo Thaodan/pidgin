@@ -33,6 +33,7 @@
 #include "request.h"
 #include "signals.h"
 #include "util.h"
+#include "credential.h"
 
 /** List holding pointers to all registered private key schemes */
 static GList *pkcs12_schemes = NULL;
@@ -40,15 +41,14 @@ static GList *pkcs12_schemes = NULL;
 gboolean
 purple_pkcs12_import(PurplePkcs12Scheme *scheme,
 		     const gchar *filename, const gchar *password,
-		     GList **crts, PurplePrivateKey **key)
+		     GList **credentials)
 {
 	g_return_val_if_fail(scheme, FALSE);
 	g_return_val_if_fail(filename, FALSE);
 	g_return_val_if_fail(password, FALSE);
-	g_return_val_if_fail(crts, FALSE);
-	g_return_val_if_fail(key, FALSE);
+	g_return_val_if_fail(credentials, FALSE);
 
-	return (scheme->import_pkcs12)(filename, password, crts, key);
+	return (scheme->import_pkcs12)(filename, password, credentials);
 }
 
 gboolean
@@ -67,10 +67,12 @@ gboolean
 purple_pkcs12_import_to_pool(PurplePkcs12Scheme *scheme, const gchar *filename, const gchar *password,
 							 PurpleCertificatePool *crtpool, PurplePrivateKeyPool *keypool)
 {
-	GList *crts;
+	GList *creds;
 	PurplePrivateKey *key;
 	GList *i;
 	gchar *id;
+	gboolean result = FALSE;
+	GList *creditem;
 
 	g_return_val_if_fail(scheme, FALSE);
 	g_return_val_if_fail(filename, FALSE);
@@ -79,33 +81,37 @@ purple_pkcs12_import_to_pool(PurplePkcs12Scheme *scheme, const gchar *filename, 
 	g_return_val_if_fail(keypool, FALSE);
 
 
-	if (!purple_pkcs12_import(scheme, filename, password, &crts, &key))
+	if (!purple_pkcs12_import(scheme, filename, password, &creds))
 		return FALSE;
 
-	for (i = g_list_first(crts); NULL != g_list_next(i); i = g_list_next(i)) {
-		PurpleCertificate *crt = (PurpleCertificate*)i->data;
+	for (creditem = g_list_first(creds);
+			NULL != creditem; creditem = g_list_next(creditem)) {
+		PurpleCredential *cred = (PurpleCredential*)creditem->data;
 
-		id = purple_certificate_get_unique_id(crt);
+		for (i = g_list_first(cred->crts); NULL != i; i = g_list_next(i)) {
+			PurpleCertificate *crt = (PurpleCertificate*)i->data;
+
+			id = purple_certificate_get_unique_id(crt);
+			if (NULL == id)
+				goto done;
+
+			if (!purple_certificate_pool_store(crtpool, id, crt))
+				goto done;
+		}
+
+		id = purple_privatekey_get_unique_id(cred->key);
 		if (NULL == id)
-			goto error;
+			goto done;
 
-		if (!purple_certificate_pool_store(crtpool, id, crt))
-			goto error;
+		if (!purple_privatekey_pool_store(keypool, id, key, password))
+			goto done;
 	}
 
-	id = purple_privatekey_get_unique_id(key);
-	if (NULL == id)
-		goto error;
+	result = TRUE;
 
-	if (!purple_privatekey_pool_store(keypool, id, key, password))
-		goto error;
-
-	return TRUE;
-
-error:
-	purple_certificate_destroy_list(crts);
-	purple_privatekey_destroy(key);
-	return FALSE;
+done:
+	purple_credential_destroy_list(creds);
+	return result;
 }
 
 void
@@ -144,7 +150,7 @@ purple_pkcs12_request_password(void* handle, const char* filename, GCallback ok_
                         _("Cancel"), cancel_cb,    /* cancel text and callback */
 			NULL, NULL, NULL,          /* account, who, conv */
                         user_data);                /* callback data */
-	g_free(primary); /* TODO: not right */
+	g_free(primary); /* TODO: not right ?? */
 }
 
 /****************************************************************************/
