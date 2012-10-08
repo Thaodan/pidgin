@@ -682,24 +682,27 @@ static gboolean
 is_valid_crt_chain(GList *crts)
 {
 	PurpleCertificate *crt = NULL;
-	PurpleCertificate *last_crt = NULL;
+	PurpleCertificate *prev_crt = NULL;
 	GList *item = NULL;
 	gchar *unique_id = NULL;
 	gchar *issuer_unique_id = NULL;
 	gboolean good = TRUE;
 
 
-	/* Check if certs are in the correct order */
+	/* Check if certs are in the correct order. 
+	   The end user's cert should be first. Each cert should be 
+           followed by the certificate belonging to its issuer.
+	*/
 	item = g_list_first(crts);
-	last_crt = (PurpleCertificate*)item->data;
-	g_return_val_if_fail(NULL != last_crt, FALSE);
+	prev_crt = (PurpleCertificate*)item->data;
+	g_return_val_if_fail(NULL != prev_crt, FALSE);
 	item = g_list_next(item);
 	while (NULL != item && good) {
 		crt = (PurpleCertificate*)item->data;
 		g_return_val_if_fail(NULL != crt, FALSE);
 
 		unique_id = purple_certificate_get_unique_id(crt);
-		issuer_unique_id = purple_certificate_get_issuer_unique_id(last_crt);
+		issuer_unique_id = purple_certificate_get_issuer_unique_id(prev_crt);
 
 		if (0 != g_strcmp0(unique_id, issuer_unique_id)) {
 			purple_debug_error("certificate", "Broken certificate chain: %s %s\n",
@@ -709,7 +712,7 @@ is_valid_crt_chain(GList *crts)
 
 		g_free(unique_id);
 		g_free(issuer_unique_id);
-		last_crt = crt;
+		prev_crt = crt;
 		item = g_list_next(item);
 	}
 
