@@ -633,6 +633,7 @@ static x509_crtdata_t *
 x509_crtdata_addref(x509_crtdata_t *cd)
 {
 	(cd->refcount)++;
+	purple_debug_info("gnutls", "crtdata_addref: cd = %p, refcount = %d\n", cd, cd->refcount);
 	return cd;
 }
 
@@ -640,6 +641,7 @@ static void
 x509_crtdata_delref(x509_crtdata_t *cd)
 {
 	(cd->refcount)--;
+	purple_debug_info("gnutls", "crtdata_delref: cd = %p, refcount = %d\n", cd, cd->refcount);
 
 	if (cd->refcount < 0)
 		g_critical("Refcount of x509_crtdata_t is %d, which is less "
@@ -647,6 +649,7 @@ x509_crtdata_delref(x509_crtdata_t *cd)
 
 	/* If the refcount reaches zero, kill the structure */
 	if (cd->refcount <= 0) {
+		purple_debug_info("gnutls", "destroying crtdata %p\n", cd);
 		/* Kill the internal data */
 		gnutls_x509_crt_deinit( cd->crt );
 		/* And kill the struct */
@@ -1381,6 +1384,306 @@ static PurplePluginInfo info =
 	NULL,
 	NULL
 };
+
+static void
+free_unused_pcrts(gpointer data, gpointer user_data)
+{
+	PurpleCertificate *pcrt = (PurpleCertificate*)data;
+	x509_destroy_certificate(pcrt);
+}
+
+
+/**
+ * Collect sets of credentials from the given list of GnuTLS certificates
+ * and private keys.
+ *
+ * This is the conversion point from GnuTLS to Purple objects. We will
+ * traverse the lists matching up private keys with certificates based on
+ * the GnuTLS key id (specific to GnuTLS) for the key and certificate. We
+ * will also create the certificate chain for the client certificate. 
+ * THis was motivated by the fact that we can't really assume that PKCS12
+ * files have any logical order and it is up to us to figure out what is
+ * in there. You really start to understand why PKI sucks here.
+ *
+ * @param crts List of gnutls_x509_crt_t. Not modified.
+ * @param keys List of gnutls_x509_privkey_t. Not modified.
+ * @returns List of PurpleCredentials generated from the lists of crts and keys.
+ */
+static GList*
+collect_credentials(GList *crts, GList *keys)
+{
+	GList *node = NULL;
+	GList *creds = NULL;
+	PurpleCredential *cred = NULL;
+	PurplePrivateKey *pkey = NULL;
+	GList *pcrts = NULL;
+	GList *chain = NULL;
+
+	/* Convert list of gnutls_x509_crt to list of PurpleCertificates */
+	/* Only work with PurpleCertificates from now on */
+	g_list_foreach(crts, add_to_purple_crt_list, &pcrts);
+
+	for (node = g_list_first(keys);
+			node != NULL;
+			node = g_list_next(node)) {
+		/* Convert gnutls_x509_privkey to PurplePrivateKey */
+		gnutls_x509_privkey_t key = (gnutls_x509_privkey_t)node->data;
+		pkey = create_purple_privatekey_from_privkey(key);
+		
+		chain = get_crt_chain_for_key(pkey, pcrts);
+
+		if (NULL == chain) {
+			purple_debug_error("gnutls",
+				"Failed to find cert chain for key\n");
+		}
+		else {
+			cred = g_new0(PurpleCredential, 1);
+			cred->crts = chain;
+			cred->key = pkey;
+			creds = g_list_append(creds, cred);
+		}
+	}
+
+	/* Free any certificates not used for credentials. When we create
+	 * the pcrts list above we add a reference to each crt. Each crt
+	 * added to a chain also increases the crt's ref cnt. Anything with
+	 * ref cnt of 1 (not used in a chain) will get freed here.
+	 */
+	g_list_foreach(pcrts, free_unused_pcrts, NULL);
+
+	return creds;
+}
+
+static gboolean
+is_self_signed(gnutls_x509_crt_t crt)
+{
+	char* subject_dn = NULL;
+	char* issuer_dn = NULL;
+	size_t subject_size = 0;
+	size_t issuer_size = 0;
+	int ret;
+	gboolean result = FALSE;
+
+	ret = gnutls_x509_crt_get_dn(crt, NULL, &subject_size);
+	if (GNUTLS_E_SHORT_MEMORY_BUFFER != ret) {
+		purple_debug_error("gnutls",
+			"Failed to get size for crt's dn: %s(%d)\n",
+			gnutls_strerror(ret), ret);
+		result = TRUE; /* prevent endless loop */
+		goto done;
+	}
+	
+	subject_dn = g_new0(char, subject_size);
+	ret = gnutls_x509_crt_get_dn(crt, subject_dn, &subject_size);
+	if (GNUTLS_E_SUCCESS != ret) {
+		purple_debug_error("gnutls",
+			"Failed to get crt's dn: %s(%d); size=%zd\n",
+			gnutls_strerror(ret), ret, subject_size);
+		result = TRUE;
+		goto done;
+	}
+
+	
+	ret = gnutls_x509_crt_get_issuer_dn(crt, NULL, &issuer_size);
+	if (GNUTLS_E_SHORT_MEMORY_BUFFER != ret) {
+		purple_debug_error("gnutls",
+			"Failed to get size for crt's issuer dn: %s(%d)\n",
+			gnutls_strerror(ret), ret);
+		result = TRUE; /* prevent endless loop */
+		goto done;
+	}
+	
+	issuer_dn = g_new0(char, issuer_size);
+	ret = gnutls_x509_crt_get_issuer_dn(crt, issuer_dn, &issuer_size);
+	if (GNUTLS_E_SUCCESS != ret) {
+		purple_debug_error("gnutls",
+			"Failed to get crt's dn: %s(%d), size=%zd\n",
+			gnutls_strerror(ret), ret, issuer_size);
+		result = TRUE;
+		goto done;
+	}
+
+	if (0 == g_strcmp0(issuer_dn, subject_dn)) {
+		result = TRUE;
+	}
+
+done:
+	if (subject_dn)
+		g_free(subject_dn);
+	if (issuer_dn)
+		g_free(issuer_dn);
+	return result;
+}
+
+/**
+ * Build the certificate chain for pcrt from the given list
+ * of certificates. This will build as much of the chain as
+ * possible given the available certificates. It will stop when it
+ * finds a self-signed certificate.
+ *
+ * We are passing PurpleCertificate and PurplePrivateKey here instead
+ * of the native gnutls objects since we could hold references to
+ * certificates in multiple chains. GNUTLS does not a copy function
+ * for gnutls_x509_crt_t (oddly it does for gnutls_x509_privkey_t),
+ * but we already have reference counting in the PurpleCertificate
+ * and PurplePrivateKey. 
+ *
+ * TODO: Perhaps this should get migrated to the libpurple level
+ * but we will also need to add means to PurpleCertificate and 
+ * PurplePrivateKey to get a key id that allows us to match the
+ * key with the cert. That API doesn't exist.
+ *
+ * @param pcrt End-point certificate to start building chain from. Not modified.
+ * @param pcrts List of PurpleCertificates to build chain from. Not modified.
+ * @returns The certificate chain for pcrt. This will always return
+ *          at least a list containing pcrt. A list of PurpleCertificates.
+ */
+static GList*
+get_chain_for_crt(PurpleCertificate *pcrt, GList* pcrts)
+{
+	gnutls_x509_crt_t crt = X509_GET_GNUTLS_DATA(pcrt);
+	PurpleCertificate *pissuer = NULL;
+	gnutls_x509_crt_t issuer = NULL;
+	x509_crtdata_t *issuer_crtdata = NULL;
+	GList *node = NULL;
+	GList *chain = NULL;
+	gboolean found = TRUE;
+
+	/* We modify the list locally so make a
+	   copy so we don't affect the caller */
+	pcrts = g_list_copy(pcrts);
+
+	chain = g_list_append(chain, x509_copy_certificate(pcrt));
+
+	while (found && !is_self_signed(crt)) {
+
+		node = g_list_first(pcrts);
+		pissuer = (PurpleCertificate*)node->data;
+		issuer_crtdata = (x509_crtdata_t *)pissuer->data;
+		issuer = issuer_crtdata->crt;
+
+		found = FALSE;
+		while (NULL != node) {
+			if (gnutls_x509_crt_check_issuer(crt, issuer)) {
+				/* Remove from list so we don't get tricked 
+				   into an infinite loop */
+				pcrts = g_list_delete_link(pcrts, node);
+
+				
+				/* add to the cert chain */
+				chain = g_list_append(chain, x509_copy_certificate(pissuer));
+
+				crt = issuer;
+				found = TRUE;
+				purple_debug_info("gnutls", "Added crt %p to chain\n", issuer);
+				break;
+			}
+			node = g_list_next(node);
+			pissuer = (PurpleCertificate*)node->data;
+			issuer_crtdata = (x509_crtdata_t *)pissuer->data;
+			issuer = issuer_crtdata->crt;
+		}
+	}
+
+	if (!is_self_signed(crt)) {
+		/* TODO: This should be a warning box */
+		purple_debug_warning("gnutls", "Certificate chain incomplete.\n");
+	}
+
+	return chain;	
+}
+
+/**
+ * Create from the given list of certificates a certificate chain for 
+ * the given key.
+ *
+ * @param pcrts List of PurpleCertificates. Not modified.
+ * @param pkey Create the certificate chain for this key. Not modified.
+ * @return List of PurpleCertificates constiting the chain ordered from client
+ *         to the top-level CA. NULL for error.
+ */
+static GList*
+get_crt_chain_for_key(const PurplePrivateKey *pkey, GList* pcrts)
+{
+	GList *node = NULL;
+	GList *chain = NULL; /* NULL for error */
+	PurpleCertificate *pcrt = NULL;
+	gnutls_x509_crt_t crt = NULL;
+	gnutls_x509_privkey_t key = X509_GET_GNUTLS_KEYDATA(pkey);
+	size_t keyid_size = 0;
+	unsigned char* keyid = NULL;
+	size_t crtid_size = 0;
+	unsigned char *crtid = NULL;
+	int ret = 0;
+
+
+	ret = gnutls_x509_privkey_get_key_id(key, 0, NULL, &keyid_size);
+	if (ret != GNUTLS_E_SHORT_MEMORY_BUFFER) {
+		purple_debug_error("gnutls",
+			"Failed to get size for keyid: %s(%d)\n",
+			gnutls_strerror(ret), ret);
+		goto done;
+	}
+	
+	keyid = g_new0(unsigned char, keyid_size);
+	ret = gnutls_x509_privkey_get_key_id(key, 0, keyid, &keyid_size);
+	if (GNUTLS_E_SUCCESS != ret) {
+		purple_debug_error("gnutls",
+			"Failed to get key id: %s(%d)\n",
+			gnutls_strerror(ret), ret);
+		goto done;
+	}
+
+	purple_debug_info("gnutls",
+		"Finding cert chain for key with id %02x %02x %02x %02x\n",
+		keyid[0], keyid[1], keyid[2], keyid[3]);
+
+	for (node = g_list_first(pcrts); node != NULL;
+			node = g_list_next(node)) {
+		pcrt = (PurpleCertificate*)node->data;
+		crt = X509_GET_GNUTLS_DATA(pcrt);
+
+		ret = gnutls_x509_crt_get_key_id(crt, 0, NULL, &crtid_size);
+		if (ret != GNUTLS_E_SHORT_MEMORY_BUFFER) {
+			purple_debug_error("gnutls",
+				"Failed to get size for crtid: %s(%d)\n",
+				gnutls_strerror(ret), ret);
+			goto done;
+		}
+		
+		crtid = g_new0(unsigned char, crtid_size);
+		ret = gnutls_x509_crt_get_key_id(crt, 0, crtid, &crtid_size);
+		if (GNUTLS_E_SUCCESS != ret) {
+			purple_debug_error("gnutls",
+				"Failed to get crt id with error %s(%d)\n",
+				gnutls_strerror(ret), ret);
+			goto done;
+		}
+
+		purple_debug_info("gnutls",
+			"Examining cert (%p) with id: %02x %02x %02x %02x\n",
+			crt, crtid[0], crtid[1], crtid[2], crtid[3]);
+
+		if (keyid_size == crtid_size 
+				&& 0 == memcmp(keyid, crtid, keyid_size)) {
+			purple_debug_info("gnutls",
+				"Found key's cert (%p)  with id: %02x %02x %02x %02x\n",
+				crt, crtid[0], crtid[1], crtid[2], crtid[3]);
+
+			chain = get_chain_for_crt(pcrt, pcrts);
+
+			break;
+		}
+	}
+
+done:
+	if (keyid)
+		g_free(keyid);
+	if (crtid)
+		g_free(crtid);
+
+	return chain;
+}
 
 static void
 init_plugin(PurplePlugin *plugin)

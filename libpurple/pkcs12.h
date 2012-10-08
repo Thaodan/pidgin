@@ -2,7 +2,7 @@
  * @file pkcs12.h PKCS12 API
  * @ingroup core
  * @see 
- * @since 2.2.0
+ * @since 3.0.0
  */
 
 /*

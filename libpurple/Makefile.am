@@ -43,6 +43,7 @@ purple_coresources = \
 	connection.c \
 	conversation.c \
 	core.c \
+	credential.c \
 	debug.c \
 	desktopitem.c \
 	eventloop.c \
@@ -109,6 +110,7 @@ purple_coreheaders = \
 	connection.h \
 	conversation.h \
 	core.h \
+	credential.h \
 	dbus-maybe.h \
 	debug.h \
 	desktopitem.h \

@@ -33,6 +33,7 @@
 #include "request.h"
 #include "signals.h"
 #include "util.h"
+#include "credential.h"
 
 /** List holding pointers to all registered private key schemes */
 static GList *pkcs12_schemes = NULL;
@@ -112,7 +113,7 @@ purple_pkcs12_request_password(void* handle, const char* filename, GCallback ok_
                         _("Cancel"), cancel_cb,    /* cancel text and callback */
 			NULL, NULL, NULL,          /* account, who, conv */
                         user_data);                /* callback data */
-	g_free(primary); /* TODO: not right */
+	g_free(primary); /* TODO: not right ?? */
 }
 
 /****************************************************************************/
