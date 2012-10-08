@@ -93,9 +93,9 @@ hex_encode(guint8 *buf, gsize buf_len)
   gint i;
   gchar *retval;
 
-  retval = g_new (gchar, len + 1);
+  retval = g_new0 (gchar, len + 1);
 
-  for (i = 0; i < len; i++)
+  for (i = 0; i < buf_len; i++)
     {
       guint8 byte = buf[i];
 
@@ -1217,11 +1217,27 @@ x509_cert_dn (PurpleCertificate *crt)
 	gnutls_x509_crt_t cert_dat;
 	gchar *dn = NULL;
 	size_t dn_size;
+	uint8_t *serial = NULL;
+	size_t serial_size;
+	gchar *id;
+	gchar *hserial;
+
 
 	g_return_val_if_fail(crt, NULL);
 	g_return_val_if_fail(crt->scheme == &x509_gnutls, NULL);
 
 	cert_dat = X509_GET_GNUTLS_DATA(crt);
+
+	serial_size = 0;
+	gnutls_x509_crt_get_serial(cert_dat, serial, &serial_size);
+
+	serial = g_new0(uint8_t, serial_size);
+	if (0 != gnutls_x509_crt_get_serial(cert_dat, serial, &serial_size)) {
+		purple_debug_error("gnutls/x509",
+				   "Failed to get cert serial\n");
+		g_free(serial);
+		return NULL;
+	}
 
 	/* Figure out the length of the Distinguished Name */
 	/* Claim that the buffer is size 0 so GnuTLS just tells us how much
@@ -1240,8 +1256,15 @@ x509_cert_dn (PurpleCertificate *crt)
 		g_free(dn);
 		return NULL;
 	}
+	
+	/* XXX Hack to get a real unique id. The DN does not unique id a cert! */
+ 	hserial = hex_encode(serial, serial_size);
+	id = g_strdup_printf("%s_%s", dn, hserial);
+	g_free(hserial);
+	g_free(serial);
+	g_free(dn);
 
-	return dn;
+	return id;
 }
 
 static gchar *
@@ -1554,7 +1577,7 @@ x509_export_key(const gchar *filename, PurplePrivateKey *key, const gchar* passw
 	}
 
 	/* TODO: Again we seem to randomly get a "just not quite big enough" size above. */
-	//out_size += 100;
+	out_size += 100;
 
 	out_buf = g_new0(gchar, out_size);
 	ret = gnutls_x509_privkey_export_pkcs8(key_dat, GNUTLS_X509_FMT_PEM,

@@ -678,6 +678,7 @@ purple_certificate_pool_destroy_idlist(GList *idlist)
 	g_list_free(idlist);
 }
 
+/* TODO: Broken since we added the crt serial number to unqiue_id */
 static gboolean
 is_valid_crt_chain(GList *crts)
 {
@@ -730,7 +731,7 @@ purple_certificate_pool_store_chain(PurpleCertificatePool *pool, const gchar *id
 	g_return_val_if_fail(NULL != pool, FALSE);
 	g_return_val_if_fail(NULL != id, FALSE);
 	g_return_val_if_fail(NULL != crts, FALSE);
-	g_return_val_if_fail(is_valid_crt_chain(crts), FALSE);
+//	g_return_val_if_fail(is_valid_crt_chain(crts), FALSE);
 
 	item = g_list_first(crts);
 	crt = (PurpleCertificate*)item->data;
