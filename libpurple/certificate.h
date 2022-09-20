@@ -342,7 +342,7 @@ struct _PurpleCertificateScheme
 	 * @return TRUE if both certificates have the same key, otherwise FALSE
 	 * @since 2.12.0
 	 */
-	//gboolean (* compare_pubkeys)(PurpleCertificate *crt1, PurpleCertificate *crt2);
+	gboolean (* compare_pubkeys)(PurpleCertificate *crt1, PurpleCertificate *crt2);
 };
 
 #define PURPLE_CERTIFICATE_SCHEME_HAS_FUNC(obj, member) \
