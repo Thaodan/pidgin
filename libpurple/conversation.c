@@ -2687,7 +2687,7 @@ purple_conversations_init(void)
 	purple_signal_register(handle, "deleting-chat-buddy",
 						 purple_marshal_VOID__POINTER, NULL, 1,
 						 purple_value_new(PURPLE_TYPE_SUBTYPE,
-										PURPLE_SUBTYPE_CHATBUDDY));
+										PURPLE_SUBTYPE_BLIST_BUDDY));
 
 	purple_signal_register(handle, "chat-inviting-user",
 						 purple_marshal_VOID__POINTER_POINTER_POINTER, NULL, 3,
