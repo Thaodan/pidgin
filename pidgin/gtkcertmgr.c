@@ -1084,12 +1084,10 @@ user_mgmt_info_cb(GtkWidget *button, gpointer data)
 
 	/* Fire the notification */
 	title = g_strdup_printf(_("Certificate Information for %s"), id);
-	purple_request_certificate(um_dat, title, NULL, NULL, crt,
-	                           _("OK"), G_CALLBACK(purple_certificate_destroy),
-	                           _("Cancel"), G_CALLBACK(purple_certificate_destroy),
-	                           crt);
+    purple_certificate_display_x509(crt);
 
 	g_free(id);
+    purple_certificate_destroy(crt);
 	g_free(title);
 }
 
