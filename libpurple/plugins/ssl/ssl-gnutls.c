@@ -90,7 +90,7 @@ static gchar *
 hex_encode(guint8 *buf, gsize buf_len)
 {
   gint len = buf_len * 2;
-  gint i;
+  gsize i;
   gchar *retval;
 
   retval = g_new0 (gchar, len + 1);
