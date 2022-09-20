@@ -149,7 +149,7 @@ ssl_gnutls_certificate_retrieve_function(
 
 	/* TODO: Check that client_auth_certs algo matches pk_algos */
 
-	st->type = GNUTLS_CRT_X509;
+	st->cert_type = GNUTLS_CRT_X509;
 	st->cert.x509 = client_auth_certs;
 	st->ncerts = 1;
 	st->key.x509 = client_auth_key;
