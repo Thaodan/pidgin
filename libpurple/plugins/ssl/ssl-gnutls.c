@@ -505,8 +505,8 @@ ssl_gnutls_connect(PurpleSslConnection *gsc)
 	gnutls_set_default_priority(gnutls_data->session);
 #endif
 
-	gnutls_priority_set_direct(gnutls_data->session,
-		cert_type_priority, NULL);
+//	gnutls_priority_set_direct(gnutls_data->session,
+//		cert_type_priority, NULL);
 
 	purple_debug_info("gnutls", "client cert id: %s cert:%p key:%p\n",
 		gsc->certificate_id, gsc->certificate, gsc->key);
