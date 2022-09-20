@@ -133,7 +133,7 @@ ssl_gnutls_certificate_retrieve_function(
 		gnutls_session_t session,
 		const gnutls_datum_t* req_ca_dn, int nreqs,
 		const gnutls_pk_algorithm_t* pk_algos, int pk_algos_length,
-		gnutls_retr_st* st)
+		gnutls_retr2_st* st)
 {
 	if (NULL == client_auth_certs[0]) {
 		purple_debug_error("gnutls", "Tried to retrieve a client cert but none was set.\n");
