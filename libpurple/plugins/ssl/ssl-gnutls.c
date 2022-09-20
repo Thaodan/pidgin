@@ -1420,7 +1420,7 @@ static PurpleCertificateScheme x509_gnutls = {
 	NULL,
 	sizeof(PurpleCertificateScheme), /* struct_size */
 	x509_sha256sum,                  /* SHA256 fingerprint */
-	x509_compare_pubkeys,            /* Compare public keys */
+	//x509_compare_pubkeys,            /* Compare public keys */
 };
 
 /**********************************************************
