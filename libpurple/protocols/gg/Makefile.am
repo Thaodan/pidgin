@@ -129,7 +129,7 @@ st =
 pkg_LTLIBRARIES = libgg.la
 libgg_la_SOURCES = $(GGSOURCES)
 libgg_la_CFLAGS = $(AM_CFLAGS)
-libgg_la_LIBADD  = $(GLIB_LIBS) $(LIBGADU_LIBS) $(INTGG_LIBS) $(AM_CFLAGS)
+libgg_la_LIBADD  = $(GLIB_LIBS) $(LIBGADU_LIBS) $(INTGG_LIBS)
 
 endif
 
